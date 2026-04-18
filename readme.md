@@ -30,6 +30,7 @@ For GitHub Pages, push to a repo and enable Pages on the `main` branch
 │   ├── data.js         Teams, riders, tracks, starting state
 │   ├── game.js         Save/load, unlocks, state helpers
 │   ├── actions.js      Pre-Race Week action definitions
+│   ├── race.js         Qualifying sim, race engine, commentary
 │   ├── menu.js         Main menu rendering
 │   └── ui.js           Game screen rendering
 └── README.md
@@ -41,7 +42,7 @@ For GitHub Pages, push to a repo and enable Pages on the `main` branch
 
 - [x] **Phase 1** — Data layer, main menu, game shell, save/load scaffolding
 - [x] **Phase 2** — Pre-Race Week: Action Points, broom R&D, rider management, media
-- [ ] **Phase 3** — Qualifying and Race Day: lap-by-lap commentary, strategic interventions
+- [x] **Phase 3** — Qualifying and Race Day: lap-by-lap commentary, strategic interventions
 - [ ] **Phase 4** — Event cards: scripted canon moments and random pool
 - [ ] **Phase 5** — Endings, *Daily Prophet* post-race pages, polish
 

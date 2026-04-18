@@ -388,45 +388,400 @@
   }
 
   // ==========================================
-  // STUBS (filled in later phases)
+  // QUALIFYING
   // ==========================================
+  let _qualiResult = null;
+
   function renderQualifyingStub(state, track) {
+    if (!_qualiResult) {
+      // lazy-run qualifying once
+      _qualiResult = window.IFCRace.simulateQualifying(state);
+      const playerEntry = _qualiResult.find(e => e.isPlayer);
+      state.gridPosition = playerEntry ? playerEntry.grid : 4;
+      G.saveGame(state);
+    }
+    const result = _qualiResult;
+    const playerEntry = result.find(e => e.isPlayer);
+
+    let rows = '';
+    result.forEach((e, i) => {
+      const rider = RIDERS[e.riderId];
+      const team = TEAMS[e.teamId];
+      const isPlayer = e.isPlayer;
+      rows += `
+        <div style="display:flex; align-items:center; gap:10px; padding:7px 0;
+                    ${i < result.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
+                    ${isPlayer ? 'font-weight:bold;' : ''}">
+          <div style="width:22px; text-align:right; font-family:'Segoe UI',sans-serif; font-size:12px; color:var(--im);">
+            ${e.grid}
+          </div>
+          <div style="width:3px; height:22px; background: ${team.colourA}; border-radius:2px;"></div>
+          <div style="flex:1; font-size:13px;">
+            ${rider.name}
+            ${isPlayer ? '<span class="badge badge-gold" style="margin-left:6px;">YOU</span>' : ''}
+          </div>
+          <div class="text-tiny" style="opacity:0.5;">${team.nickname}</div>
+        </div>
+      `;
+    });
+
+    // pick a commentator line about the result
+    let commentLine = '';
+    if (playerEntry.grid === 1) {
+      commentLine = `<i>Jordan: "Pole for Bayes! Has he even woken up?"</i>`;
+    } else if (playerEntry.grid <= 3) {
+      commentLine = `<i>Delacroix: "Front two rows. That's a race seat."</i>`;
+    } else if (playerEntry.grid <= 5) {
+      commentLine = `<i>Delacroix: "Midfield. Not ideal. Not catastrophic."</i>`;
+    } else {
+      commentLine = `<i>Jordan: "Back row. Right, Cassian. Overtakes, please."</i>`;
+    }
+
     return `
-      <div class="sh sh-crimson"><span class="dot-live"></span>Qualifying</div>
+      <div class="sh sh-crimson"><span class="dot-live"></span>Qualifying Result</div>
       <div class="card">
-        <div class="text-tiny text-gold">${track.name}</div>
-        <p class="text-small mt-12" style="color:var(--id);">
-          <i>The Qualifying system is under construction.
-          In the full game, this runs a single-lap time simulation that sets
-          the grid for Sunday's race.</i>
-        </p>
+        <div class="text-tiny text-gold">${track.name} · ${track.nickname}</div>
+        <div class="text-small mt-12">${commentLine}</div>
         <div class="divider"></div>
-        <button class="btn btn-primary" onclick="UI.skipQualifying()">
-          <span class="btn-label">Provisional</span>
-          <span class="btn-body">Simulate placeholder grid · continue to Race Day</span>
-        </button>
+        ${rows}
       </div>
+
+      <div class="divider"></div>
+      <button class="btn btn-primary" onclick="UI.startRace()">
+        <span class="btn-label">Race Day</span>
+        <span class="btn-body">Line up on the grid · P${playerEntry.grid}</span>
+      </button>
     `;
   }
 
+  // ==========================================
+  // RACE DAY — LIVE
+  // ==========================================
+  let _raceState = null;
+  let _raceTimer = null;
+  let _raceMode = 'idle'; // idle | running | paused | intervention | finished
+  let _pendingIntervention = null;
+
   function renderRaceStub(state, track) {
+    // If a race hasn't been set up yet, show the grid + start button
+    if (!_raceState && _raceMode === 'idle') {
+      return renderRaceIntro(state, track);
+    }
+
+    // Otherwise, show live commentary / position board
+    return renderRaceLive(state, track);
+  }
+
+  function renderRaceIntro(state, track) {
     return `
       <div class="sh sh-crimson"><span class="dot-live"></span>Race Day</div>
       <div class="card">
         <div class="text-tiny text-gold">${track.name}</div>
-        <p class="text-small mt-12" style="color:var(--id);">
-          <i>The Race Day engine is under construction.
-          The full system runs a lap-by-lap broadcast with commentary from
-          Lee Jordan and Étienne Delacroix, plus mid-race strategic
-          interventions over the team radio.</i>
-        </p>
+        <div style="font-size:17px; font-weight:bold; margin-top:4px;">Starting grid: P${state.gridPosition || 4}</div>
+        <div class="text-small mt-12" style="color:var(--id);">
+          ${track.laps} laps. Lee Jordan and Étienne Delacroix on commentary.
+          Petra will be on the team radio.
+        </div>
         <div class="divider"></div>
-        <button class="btn btn-primary" onclick="UI.skipRace()">
-          <span class="btn-label">Provisional</span>
-          <span class="btn-body">Resolve race with placeholder result</span>
+        <div class="text-small" style="color:var(--id);">
+          <i>During the race, you will receive a handful of team-radio calls
+          asking for a decision. Respond quickly — the window is brief.</i>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="UI.beginRace()">
+        <span class="btn-label">Lights Out</span>
+        <span class="btn-body">Start the race</span>
+      </button>
+    `;
+  }
+
+  function renderRaceLive(state, track) {
+    const rs = _raceState;
+    if (!rs) return '';
+
+    const player = rs.runners.find(r => r.isPlayer);
+    const playerPos = player ? (player.dnf ? 'DNF' : `P${player.position}`) : '—';
+
+    // Position bar — top 7 live
+    let posBar = '';
+    const ordered = [...rs.runners].sort((a, b) => {
+      if (a.dnf && !b.dnf) return 1;
+      if (!a.dnf && b.dnf) return -1;
+      return a.position - b.position;
+    });
+    ordered.forEach((r, i) => {
+      const rider = RIDERS[r.riderId];
+      const team = TEAMS[r.teamId];
+      const isPlayer = r.isPlayer;
+      const gridShift = r.grid - (i + 1);
+      const shiftBadge = r.dnf ? '<span class="text-crimson">DNF</span>'
+                       : gridShift > 0 ? `<span style="color:#2d7a5f;">▲${gridShift}</span>`
+                       : gridShift < 0 ? `<span style="color:var(--cr);">▼${-gridShift}</span>`
+                       : `<span style="color:var(--im);">—</span>`;
+      posBar += `
+        <div style="display:flex; align-items:center; gap:8px; padding:5px 0;
+                    ${i < ordered.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
+                    ${isPlayer ? 'font-weight:bold; background:rgba(200,168,50,0.07);' : ''}
+                    ${r.dnf ? 'opacity:0.45;' : ''}">
+          <div style="width:20px; text-align:right; font-family:'Segoe UI',sans-serif; font-size:12px; color:var(--im);">
+            ${r.dnf ? '—' : r.position}
+          </div>
+          <div style="width:3px; height:18px; background: ${team.colourA}; border-radius:2px;"></div>
+          <div style="flex:1; font-size:12.5px;">
+            ${rider.name}
+          </div>
+          <div style="font-family:'Segoe UI',sans-serif; font-size:11px; width:34px; text-align:right;">
+            ${shiftBadge}
+          </div>
+        </div>
+      `;
+    });
+
+    // Commentary log — last 8 entries
+    const log = rs.commentary.slice(-8);
+    let logHtml = '';
+    log.forEach(c => {
+      const who = c.who === 'lee' ? 'Jordan'
+                : c.who === 'etienne' ? 'Delacroix'
+                : c.who === 'radio' ? 'Team Radio'
+                : '—';
+      const colour = c.who === 'lee' ? 'var(--cr)'
+                  : c.who === 'etienne' ? 'var(--nv)'
+                  : 'var(--g)';
+      logHtml += `
+        <div style="padding:8px 0; border-bottom:1px dashed var(--pd);">
+          <div class="text-tiny" style="color:${colour};">L${c.lap} · ${who}</div>
+          <div class="text-small mt-8">${c.text}</div>
+        </div>
+      `;
+    });
+
+    // Player layers mini-display
+    let layers = '';
+    if (player && !player.dnf) {
+      layers = `
+        <div class="card card-tight">
+          <div class="text-tiny text-gold">Your Broom · Charm Layers</div>
+          ${miniBar('Protection', player.layers.protection, player.layers.protection < 20 ? 'crimson' : null)}
+          ${miniBar('Acceleration', player.layers.acceleration, player.layers.acceleration < 25 ? 'crimson' : null)}
+          ${miniBar('Manoeuvrability', player.layers.manoeuvrability)}
+          ${miniBar('Stability', player.layers.stability)}
+        </div>
+      `;
+    }
+
+    const progressPct = (rs.lap / rs.maxLap) * 100;
+
+    return `
+      <div class="sh sh-crimson"><span class="dot-live"></span>Live · ${track.name}</div>
+      <div class="card card-tight">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="text-tiny">Lap</div>
+            <div style="font-size:18px; font-weight:bold;">${rs.lap} / ${rs.maxLap}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="text-tiny">Bayes</div>
+            <div style="font-size:18px; font-weight:bold;">${playerPos}</div>
+          </div>
+        </div>
+        <div class="bar mt-12"><div class="bar-f" style="width:${progressPct}%;"></div></div>
+      </div>
+
+      ${layers}
+
+      <div class="sh">Running Order</div>
+      <div class="card card-tight">${posBar}</div>
+
+      <div class="sh">Commentary</div>
+      <div class="card card-tight" style="max-height:320px; overflow-y:auto;" id="commentary-log">
+        ${logHtml || '<div class="text-small" style="color:var(--im);"><i>Awaiting lights out...</i></div>'}
+      </div>
+
+      ${_raceMode === 'finished' ? `
+        <div class="divider"></div>
+        <button class="btn btn-primary" onclick="UI.finishRace()">
+          <span class="btn-label">Chequered Flag</span>
+          <span class="btn-body">See the race result</span>
         </button>
+      ` : ''}
+    `;
+  }
+
+  function miniBar(label, value, variant) {
+    const barClass = variant === 'crimson' ? 'bar-f bar-f-crimson' : 'bar-f';
+    const pct = Math.max(0, Math.min(100, value));
+    return `
+      <div style="display:flex; align-items:center; gap:10px; margin:6px 0;">
+        <div class="text-tiny" style="width:110px;">${label}</div>
+        <div style="flex:1;">
+          <div class="bar"><div class="${barClass}" style="width:${pct}%;"></div></div>
+        </div>
+        <div style="font-family:'Segoe UI',sans-serif; font-size:11px; width:32px; text-align:right;">${Math.round(pct)}</div>
       </div>
     `;
+  }
+
+  // ---------- Race actions ----------
+
+  function startRace() {
+    // from qualifying screen → race intro
+    const state = G.getCurrent();
+    state.phase = 'race';
+    _qualiResult = null;
+    G.saveGame(state);
+    render();
+  }
+
+  function beginRace() {
+    const state = G.getCurrent();
+    // build grid from stored qualifying
+    const grid = window.IFCRace.simulateQualifying(state);
+    _raceState = window.IFCRace.initRaceState(state, grid);
+    _raceMode = 'running';
+    scheduleNextTick();
+    render();
+  }
+
+  function scheduleNextTick() {
+    clearTimeout(_raceTimer);
+    _raceTimer = setTimeout(() => {
+      tick();
+    }, 1400);
+  }
+
+  function tick() {
+    if (_raceMode !== 'running') return;
+    const state = G.getCurrent();
+
+    window.IFCRace.tickRace(_raceState, state);
+
+    // scroll commentary log to bottom next frame
+    requestAnimationFrame(() => {
+      const log = document.getElementById('commentary-log');
+      if (log) log.scrollTop = log.scrollHeight;
+    });
+
+    // check intervention
+    const intervention = window.IFCRace.maybeIntervention(_raceState, state);
+    if (intervention) {
+      _pendingIntervention = intervention;
+      _raceMode = 'intervention';
+      showInterventionModal(intervention);
+      render();
+      return;
+    }
+
+    // check finish
+    if (_raceState.lap >= _raceState.maxLap) {
+      _raceMode = 'finished';
+      render();
+      return;
+    }
+
+    // partial re-render just the race section
+    render();
+    scheduleNextTick();
+  }
+
+  function showInterventionModal(intervention) {
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.id = 'intervention-modal';
+
+    let optBtns = '';
+    intervention.options.forEach(opt => {
+      optBtns += `
+        <button class="btn" onclick="UI.resolveIntervention('${opt.effect}')">
+          <span class="btn-label">${opt.label}</span>
+          <span class="btn-body">${opt.body}</span>
+        </button>
+      `;
+    });
+
+    modal.innerHTML = `
+      <div class="modal">
+        <div class="text-tiny" style="color:var(--cr);"><span class="dot-live"></span>Team Radio · Lap ${_raceState.lap}</div>
+        <h3 style="margin-top:8px;">Decision</h3>
+        <p class="text-small mb-16" style="font-style:italic;">${intervention.setup}</p>
+        ${optBtns}
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  function resolveIntervention(effect) {
+    const state = G.getCurrent();
+    const modal = document.getElementById('intervention-modal');
+    if (modal) modal.remove();
+
+    const result = window.IFCRace.applyInterventionEffect(_raceState, state, effect);
+    if (result.commentary) {
+      _raceState.commentary.push({
+        lap: _raceState.lap,
+        who: result.commentary.who,
+        text: result.commentary.text,
+      });
+    }
+    if (result.feedback) pushFeedback(result.feedback);
+
+    _pendingIntervention = null;
+
+    // continue race
+    if (_raceState.lap >= _raceState.maxLap) {
+      _raceMode = 'finished';
+    } else {
+      _raceMode = 'running';
+      scheduleNextTick();
+    }
+    render();
+  }
+
+  function finishRace() {
+    const state = G.getCurrent();
+    const resolution = window.IFCRace.finalizeRace(_raceState, state);
+
+    // advance round
+    state.round += 1;
+    if (state.round > 12) {
+      state.phase = 'ended';
+    } else {
+      state.phase = 'pre-race';
+      state.ap = window.IFC.AP_PER_WEEK;
+      // per-week flags reset
+      state.flags.simBonusActive = false;
+      state.flags.scoutActive = false;
+      state.flags.mediaBuffer = 0;
+      state.flags.pressBuffer = 0;
+      state.flags.flewWithBrokenProtection = false;
+    }
+
+    G.clampState(state);
+    G.saveGame(state);
+
+    _raceState = null;
+    _raceMode = 'idle';
+    _qualiResult = null;
+
+    const finishLine = resolution.dnf
+      ? `DNF — ${resolution.dnfReason}`
+      : `Finished P${resolution.playerPos}.`;
+    pushFeedback(finishLine);
+
+    render();
+  }
+
+  function skipQualifying() {
+    // legacy stub button (unused now — but keep the function for safety)
+    const state = G.getCurrent();
+    state.phase = 'race';
+    G.saveGame(state);
+    render();
+  }
+
+  function skipRace() {
+    // legacy stub — no longer reachable
+    render();
   }
 
   function renderEndedStub(state) {
@@ -633,44 +988,8 @@
   }
 
   function applyPlaceholderRaceResult(state, playerPos) {
-    const playerRiderId = TEAMS[state.teamId].riderId;
-    const otherIds = state.standings
-      .map(s => s.riderId)
-      .filter(id => id !== playerRiderId);
-
-    // shuffle others
-    for (let i = otherIds.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [otherIds[i], otherIds[j]] = [otherIds[j], otherIds[i]];
-    }
-
-    // build race result array
-    const positions = new Array(7);
-    positions[playerPos - 1] = playerRiderId;
-    let ptr = 0;
-    for (let i = 0; i < 7; i++) {
-      if (!positions[i]) positions[i] = otherIds[ptr++];
-    }
-
-    // award points
-    const P = window.IFC.POINTS;
-    const PRIZE = window.IFC.PRIZE;
-    positions.forEach((riderId, idx) => {
-      const pos = idx + 1;
-      const entry = state.standings.find(s => s.riderId === riderId);
-      if (entry) entry.points += P[pos] || 0;
-    });
-
-    // prize money for player
-    state.galleons += PRIZE[playerPos] || 0;
-
-    // record result
-    state.results.push({
-      round: state.round,
-      position: playerPos,
-      points: P[playerPos] || 0,
-      notes: 'Placeholder result',
-    });
+    // Legacy helper; no longer used once the race engine is wired up.
+    // Kept as a no-op to avoid breaking any latent references.
   }
 
   function goToMenu() {
@@ -683,6 +1002,9 @@
     render, goToMenu,
     togglePanel, toggleDetails,
     runAction, endWeek,
+    // race flow
+    startRace, beginRace, resolveIntervention, finishRace,
+    // legacy / unused but kept
     skipQualifying, skipRace,
   };
 
