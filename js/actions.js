@@ -241,8 +241,7 @@
     state.rider.mental = Math.max(0, state.rider.mental - 2);
     state.morale = Math.max(0, state.morale - 1);
 
-    // operating cost
-    state.galleons -= window.IFC.OPERATING_COST;
+    // No operating cost — keeps the economy simple.
 
     // reset weekly flags that shouldn't persist
     state.flags.scoutActive = false;

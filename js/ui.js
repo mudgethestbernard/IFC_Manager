@@ -121,24 +121,86 @@
   // PRE-RACE WEEK
   // ==========================================
   function renderPreRace(state, track, standing) {
+    // Try to trigger an event once per entry into pre-race
+    if (!state.flags['event_rolled_round_' + state.round]) {
+      state.flags['event_rolled_round_' + state.round] = true;
+      G.saveGame(state);
+      const rolled = window.IFCEvents.rollEvent(state);
+      if (rolled) {
+        // defer the modal to next tick so the main screen renders first
+        setTimeout(() => showEventModal(rolled.id, rolled.event), 0);
+      }
+    }
+
     let html = '';
-
-    // --- NEXT RACE CARD ---
     html += renderNextRaceCard(state, track);
-
-    // --- STANDINGS SUMMARY ---
     html += renderStandingsSummary(state, standing);
-
-    // --- RESOURCES ---
     html += renderResources(state);
-
-    // --- ACTIONS (Pre-Race Week) ---
     html += renderActionHub(state);
-
-    // --- SECONDARY INFO (collapsible) ---
     html += renderSecondaryInfo(state);
-
     return html;
+  }
+
+  // ==========================================
+  // EVENT MODALS
+  // ==========================================
+  function showEventModal(eventId, event) {
+    // Remove any existing event modal first
+    const existing = document.getElementById('event-modal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.className = 'modal-bg';
+    modal.id = 'event-modal';
+
+    let optBtns = '';
+    event.options.forEach((opt, idx) => {
+      optBtns += `
+        <button class="btn" onclick="UI.chooseEventOption('${eventId}', ${idx})">
+          <span class="btn-label">${opt.body}</span>
+          <span class="btn-body">${opt.label}</span>
+        </button>
+      `;
+    });
+
+    modal.innerHTML = `
+      <div class="modal" style="max-width:440px;">
+        <div class="text-tiny" style="color:var(--cr); letter-spacing:3px;">EVENT</div>
+        <h3 style="margin-top:8px;">${event.title}</h3>
+        <div class="text-small mb-16" style="line-height:1.6; color:var(--id);">${event.body}</div>
+        ${optBtns}
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  function chooseEventOption(eventId, optionIndex) {
+    const state = G.getCurrent();
+    const event = window.IFCEvents.EVENTS[eventId];
+    if (!event) return;
+
+    const result = window.IFCEvents.applyOption(state, event, optionIndex);
+
+    if (result.refund) {
+      // Insufficient resource — keep modal open, show feedback only
+      pushFeedback('<i>' + result.feedback + '</i>');
+      return;
+    }
+
+    // Mark as fired so it doesn't re-trigger
+    window.IFCEvents.markFired(state, eventId, !!event.scripted);
+    G.saveGame(state);
+
+    // Close modal and show narrative feedback
+    const modal = document.getElementById('event-modal');
+    if (modal) modal.remove();
+
+    if (result.feedback) pushFeedback(result.feedback);
+
+    // Re-render AP/resources
+    rerenderActionHub();
+    rerenderResources();
+    if (_detailsOpen) rerenderSecondaryInfo();
   }
 
   function renderActionHub(state) {
@@ -517,6 +579,7 @@
     return `
       <div id="race-live">
         ${renderRaceHeader(rs)}
+        ${renderRacePitBtn(rs)}
         ${renderRaceLayers(rs)}
         <div class="sh">Running Order</div>
         <div class="card card-tight" id="race-order">${renderRunningOrderRows(rs)}</div>
@@ -525,6 +588,22 @@
           ${renderCommentaryRows(rs)}
         </div>
         <div id="race-finish-btn">${renderRaceFinishBtn()}</div>
+      </div>
+    `;
+  }
+
+  function renderRacePitBtn(rs) {
+    const player = rs.runners.find(r => r.isPlayer);
+    if (!player || player.dnf) return '<div id="race-pit-btn"></div>';
+    const avgCore = (player.layers.acceleration + player.layers.manoeuvrability + player.layers.protection) / 3;
+    const urgent = avgCore < 25 || player.layers.protection < 20;
+    const disabled = (player.justPittedLap === rs.lap || _raceMode !== 'running');
+    return `
+      <div id="race-pit-btn">
+        <button class="btn ${urgent ? 'btn-danger' : 'btn-primary'}" onclick="UI.doPlayerPit()" ${disabled ? 'disabled' : ''}>
+          <span class="btn-label">Pit Stop · ${player.pitsTaken}× done</span>
+          <span class="btn-body">${urgent ? 'URGENT · Charm layers critical' : 'Call the crew in — regenerate all layers'}</span>
+        </button>
       </div>
     `;
   }
@@ -583,8 +662,11 @@
                        : gridShift > 0 ? `<span style="color:#2d7a5f;">▲${gridShift}</span>`
                        : gridShift < 0 ? `<span style="color:var(--cr);">▼${-gridShift}</span>`
                        : `<span style="color:var(--im);">—</span>`;
+      const lastName = rider.name.split(' ').slice(-1)[0];
       rows += `
-        <div style="display:flex; align-items:center; gap:8px; padding:5px 0;
+        <div data-rider-row="${r.riderId}" ${isPlayer ? 'data-player-row="1"' : ''}
+             style="display:flex; align-items:center; gap:8px; padding:5px 8px;
+                    border-radius:4px;
                     ${i < ordered.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
                     ${isPlayer ? 'font-weight:bold; background:rgba(200,168,50,0.07);' : ''}
                     ${r.dnf ? 'opacity:0.45;' : ''}">
@@ -729,6 +811,10 @@
     const progEl = document.getElementById('race-progress');
     if (progEl) progEl.style.width = `${(rs.lap / rs.maxLap) * 100}%`;
 
+    // pit button refresh
+    const pitEl = document.getElementById('race-pit-btn');
+    if (pitEl) pitEl.outerHTML = renderRacePitBtn(rs);
+
     // layers block (inner HTML only, not the container)
     const layersEl = document.getElementById('race-layers');
     if (layersEl) {
@@ -738,7 +824,7 @@
             <div class="text-tiny text-gold">Your Broom · Charm Layers</div>
             ${miniBar('Protection', player.layers.protection, player.layers.protection < 20 ? 'crimson' : null)}
             ${miniBar('Acceleration', player.layers.acceleration, player.layers.acceleration < 25 ? 'crimson' : null)}
-            ${miniBar('Manoeuvrability', player.layers.manoeuvrability)}
+            ${miniBar('Manoeuvrability', player.layers.manoeuvrability, player.layers.manoeuvrability < 25 ? 'crimson' : null)}
             ${miniBar('Stability', player.layers.stability)}
           </div>
         `;
@@ -747,17 +833,52 @@
       }
     }
 
-    // running order
+    // running order — apply FLIP animation on swaps
     const orderEl = document.getElementById('race-order');
-    if (orderEl) orderEl.innerHTML = renderRunningOrderRows(rs);
+    if (orderEl) {
+      // Snapshot current row positions keyed by rider id
+      const before = {};
+      orderEl.querySelectorAll('[data-rider-row]').forEach(el => {
+        const rid = el.getAttribute('data-rider-row');
+        before[rid] = el.getBoundingClientRect().top;
+      });
 
-    // commentary (append last line only if it's new, instead of replacing all)
+      orderEl.innerHTML = renderRunningOrderRows(rs);
+
+      // Apply FLIP — compute delta, animate from old → new
+      requestAnimationFrame(() => {
+        orderEl.querySelectorAll('[data-rider-row]').forEach(el => {
+          const rid = el.getAttribute('data-rider-row');
+          const newTop = el.getBoundingClientRect().top;
+          const oldTop = before[rid];
+          if (oldTop !== undefined && oldTop !== newTop) {
+            const delta = oldTop - newTop;
+            el.style.transition = 'none';
+            el.style.transform = `translateY(${delta}px)`;
+            el.style.boxShadow = '0 0 0 2px rgba(200,168,50,0.55)';
+            el.style.background = 'rgba(200,168,50,0.15)';
+            requestAnimationFrame(() => {
+              el.style.transition = 'transform 0.5s cubic-bezier(0.3, 0.9, 0.3, 1.1), box-shadow 0.8s ease, background 0.8s ease';
+              el.style.transform = '';
+              setTimeout(() => {
+                el.style.boxShadow = '';
+                // preserve the player's gold-highlight background
+                if (!el.hasAttribute('data-player-row')) {
+                  el.style.background = '';
+                }
+              }, 700);
+            });
+          }
+        });
+      });
+    }
+
+    // commentary: append new lines
     const logEl = document.getElementById('commentary-log');
     if (logEl) {
       const currentCount = logEl.querySelectorAll('[data-c-idx]').length;
       const total = rs.commentary.length;
       if (total > currentCount) {
-        // build and append just the new rows
         for (let i = currentCount; i < total; i++) {
           const c = rs.commentary[i];
           const row = document.createElement('div');
@@ -774,18 +895,14 @@
             <div class="text-tiny" style="color:${colour};">L${c.lap} · ${who}</div>
             <div class="text-small mt-8">${c.text}</div>
           `;
-          // remove the "Awaiting lights out..." placeholder on first append
-          if (currentCount === 0 && i === 0) {
-            logEl.innerHTML = '';
-          }
+          if (currentCount === 0 && i === 0) logEl.innerHTML = '';
           logEl.appendChild(row);
         }
-        // auto-scroll to bottom
         logEl.scrollTop = logEl.scrollHeight;
       }
     }
 
-    // finish button (show when finished)
+    // finish button
     const finishEl = document.getElementById('race-finish-btn');
     if (finishEl) finishEl.innerHTML = renderRaceFinishBtn();
   }
@@ -891,6 +1008,22 @@
       state.flags.mediaBuffer = 0;
       state.flags.pressBuffer = 0;
       state.flags.flewWithBrokenProtection = false;
+
+      // Tidy up old per-round event flags (keep size bounded)
+      for (const k of Object.keys(state.flags)) {
+        if (k.startsWith('event_') && k.includes('_fired_round_')) {
+          const match = k.match(/_round_(\d+)$/);
+          if (match && parseInt(match[1], 10) < state.round - 2) {
+            delete state.flags[k];
+          }
+        }
+        if (k.startsWith('event_rolled_round_')) {
+          const match = k.match(/_round_(\d+)$/);
+          if (match && parseInt(match[1], 10) < state.round - 1) {
+            delete state.flags[k];
+          }
+        }
+      }
     }
     _lastResolution = null;
     G.clampState(state);
@@ -898,8 +1031,20 @@
     render();
   }
 
+  function doPlayerPit() {
+    if (_raceMode !== 'running') return;
+    if (!_raceState) return;
+    const state = G.getCurrent();
+    const result = window.IFCRace.playerPit(_raceState, state);
+    if (result.ok) {
+      pushFeedback(result.feedback);
+    } else {
+      pushFeedback('<i>' + result.feedback + '</i>');
+    }
+    updateRaceLiveSections();
+  }
+
   function skipQualifying() {
-    // legacy stub button (unused now — but keep the function for safety)
     const state = G.getCurrent();
     state.phase = 'race';
     G.saveGame(state);
@@ -907,7 +1052,6 @@
   }
 
   function skipRace() {
-    // legacy stub — no longer reachable
     render();
   }
 
@@ -1274,6 +1418,9 @@
     runAction, endWeek,
     // race flow
     startRace, beginRace, resolveIntervention, finishRace, advanceRound,
+    doPlayerPit,
+    // events
+    chooseEventOption,
     // legacy / unused but kept
     skipQualifying, skipRace,
   };
