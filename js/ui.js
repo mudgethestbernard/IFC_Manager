@@ -26,7 +26,6 @@
   };
 
   // feedback queue for action results
-  let _feedback = [];
   let _openPanel = null; // which action group panel is open
 
   // ---------- INIT ----------
@@ -100,9 +99,6 @@
     html += '</main>';
 
     root.innerHTML = html;
-
-    // render feedback overlay if any
-    renderFeedback();
   }
 
   // ==========================================
@@ -134,6 +130,7 @@
     const apDots = '●'.repeat(ap) + '○'.repeat(window.IFC.AP_PER_WEEK - ap);
 
     let html = `
+      <div id="action-hub">
       <div class="sh sh-crimson">Pre-Race Week</div>
       <div class="card">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -165,6 +162,7 @@
         <span class="btn-label">Advance</span>
         <span class="btn-body">${readyLabel}</span>
       </button>
+      </div>
     `;
 
     return html;
@@ -220,6 +218,7 @@
   function renderSecondaryInfo(state) {
     // collapsed; user taps to open
     return `
+      <div id="secondary-info">
       <div class="sh">Team Details</div>
       <div class="card card-hover" onclick="UI.toggleDetails()">
         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -239,6 +238,7 @@
             ${renderFullStandingsBlock(state)}
           </div>
         ` : ''}
+      </div>
       </div>
     `;
   }
@@ -279,6 +279,7 @@
              : standing.position <= 5 ? 'badge-navy'
              : 'badge-crimson';
     return `
+      <div id="standings-summary-block">
       <div class="sh">Season Standing</div>
       <div class="card card-tight">
         <div style="display:flex; align-items:baseline; justify-content:space-between; gap:12px;">
@@ -289,6 +290,7 @@
           <div class="text-tiny">Round ${state.round} / 12</div>
         </div>
       </div>
+      </div>
     `;
   }
 
@@ -297,6 +299,7 @@
       ? ' <span class="badge badge-crimson">AUSTERITY</span>'
       : '';
     return `
+      <div id="resources-block">
       <div class="sh">Resources</div>
       <div class="card">
         <div class="res-row">
@@ -311,6 +314,7 @@
         </div>
         ${resourceBar('Team Morale', state.morale)}
         ${resourceBar('Reputation', state.reputation)}
+      </div>
       </div>
     `;
   }
@@ -444,56 +448,65 @@
   // ==========================================
   // FEEDBACK TOAST
   // ==========================================
-  function pushFeedback(text) {
-    _feedback.push({ text, time: Date.now() });
-    // keep only the last 3
-    if (_feedback.length > 3) _feedback = _feedback.slice(-3);
-  }
-
-  function renderFeedback() {
-    const existing = document.getElementById('feedback-rail');
-    if (existing) existing.remove();
-    if (_feedback.length === 0) return;
-
-    const rail = document.createElement('div');
+  function ensureFeedbackRail() {
+    let rail = document.getElementById('feedback-rail');
+    if (rail) return rail;
+    rail = document.createElement('div');
     rail.id = 'feedback-rail';
     rail.style.cssText = `
       position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
       max-width: 600px; width: calc(100% - 32px);
       z-index: 80;
       pointer-events: none;
+      display: flex; flex-direction: column-reverse; gap: 6px;
     `;
+    document.body.appendChild(rail);
+    return rail;
+  }
 
-    _feedback.slice().reverse().forEach((f, i) => {
-      const age = Date.now() - f.time;
-      const opacity = Math.max(0, 1 - age / 6000);
-      const card = document.createElement('div');
-      card.style.cssText = `
-        background: var(--nv);
-        color: var(--pl);
-        border-left: 3px solid var(--g);
-        padding: 10px 14px;
-        border-radius: 6px;
-        font-size: 13px;
-        line-height: 1.4;
-        margin-bottom: 6px;
-        opacity: ${opacity};
-        transition: opacity 0.4s ease;
-        box-shadow: 0 4px 14px rgba(0,0,0,0.25);
-        font-family: Georgia, serif;
-      `;
-      card.innerHTML = f.text;
-      rail.appendChild(card);
+  function pushFeedback(text) {
+    const rail = ensureFeedbackRail();
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      background: var(--nv);
+      color: var(--pl);
+      border-left: 3px solid var(--g);
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      line-height: 1.4;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.25);
+      font-family: Georgia, serif;
+    `;
+    toast.innerHTML = text;
+    rail.appendChild(toast);
+
+    // cap at 3 visible toasts — remove oldest
+    while (rail.children.length > 3) {
+      rail.removeChild(rail.firstChild);
+    }
+
+    // fade in
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1';
+      toast.style.transform = 'translateY(0)';
     });
 
-    document.body.appendChild(rail);
-
-    // fade out over time
+    // fade out + remove after 5s
     setTimeout(() => {
-      _feedback = _feedback.filter(f => (Date.now() - f.time) < 6000);
-      renderFeedback();
-    }, 500);
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-4px)';
+      setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 400);
+    }, 5000);
   }
+
+  // Legacy no-op (kept so render() can call it safely)
+  function renderFeedback() {}
 
   // ==========================================
   // ACTIONS (bound to buttons)
@@ -501,12 +514,42 @@
 
   function togglePanel(groupId) {
     _openPanel = (_openPanel === groupId) ? null : groupId;
-    render();
+    rerenderActionHub();
   }
 
   function toggleDetails() {
     _detailsOpen = !_detailsOpen;
-    render();
+    rerenderSecondaryInfo();
+  }
+
+  // Partial re-render helpers — avoid full-page repaint for simple toggles.
+  function rerenderActionHub() {
+    const state = G.getCurrent();
+    const anchor = document.getElementById('action-hub');
+    if (!anchor) { render(); return; }
+    anchor.outerHTML = renderActionHub(state);
+  }
+
+  function rerenderSecondaryInfo() {
+    const state = G.getCurrent();
+    const anchor = document.getElementById('secondary-info');
+    if (!anchor) { render(); return; }
+    anchor.outerHTML = renderSecondaryInfo(state);
+  }
+
+  function rerenderResources() {
+    const state = G.getCurrent();
+    const anchor = document.getElementById('resources-block');
+    if (!anchor) return;
+    anchor.outerHTML = renderResources(state);
+  }
+
+  function rerenderStandingsSummary() {
+    const state = G.getCurrent();
+    const anchor = document.getElementById('standings-summary-block');
+    if (!anchor) return;
+    const standing = G.playerStanding(state);
+    anchor.outerHTML = renderStandingsSummary(state, standing);
   }
 
   function runAction(actionId) {
@@ -519,7 +562,11 @@
     } else {
       pushFeedback('<i>' + result.feedback + '</i>');
     }
-    render();
+    // partial re-renders — no full repaint
+    rerenderActionHub();
+    rerenderResources();
+    // if rider/broom/standings panel is open, update it too
+    if (_detailsOpen) rerenderSecondaryInfo();
   }
 
   function endWeek() {
