@@ -452,6 +452,9 @@
   // ------------- TRIGGERING -------------
 
   function rollEvent(state) {
+    // No events in the opening round — let the player breathe.
+    if (state.round === 1) return null;
+
     // First: scripted event for this round?
     for (const [id, ev] of Object.entries(EVENTS)) {
       if (!ev.scripted) continue;
