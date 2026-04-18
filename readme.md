@@ -31,6 +31,7 @@ For GitHub Pages, push to a repo and enable Pages on the `main` branch
 │   ├── game.js         Save/load, unlocks, state helpers
 │   ├── actions.js      Pre-Race Week action definitions
 │   ├── race.js         Qualifying sim, race engine, commentary
+│   ├── postrace.js     Daily Prophet coverage, podium interviews
 │   ├── menu.js         Main menu rendering
 │   └── ui.js           Game screen rendering
 └── README.md

@@ -83,6 +83,8 @@
         html += renderQualifyingScreen(state, track);
       } else if (state.phase === 'race') {
         html += renderRaceScreen(state, track);
+      } else if (state.phase === 'post-race') {
+        html += renderPostRaceScreen(state);
       } else if (state.phase === 'ended') {
         html += renderEndedStub(state);
       } else {
@@ -476,6 +478,7 @@
   let _raceTimer = null;
   let _raceMode = 'idle'; // idle | running | paused | intervention | finished
   let _pendingIntervention = null;
+  let _lastResolution = null; // cached race result for post-race screen
 
   function renderRaceScreen(state, track) {
     if (!_raceState && _raceMode === 'idle') {
@@ -640,12 +643,12 @@
     const barClass = variant === 'crimson' ? 'bar-f bar-f-crimson' : 'bar-f';
     const pct = Math.max(0, Math.min(100, value));
     return `
-      <div style="display:flex; align-items:center; gap:10px; margin:6px 0;">
-        <div class="text-tiny" style="width:110px;">${label}</div>
-        <div style="flex:1;">
-          <div class="bar"><div class="${barClass}" style="width:${pct}%;"></div></div>
+      <div style="margin:10px 0;">
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+          <div class="text-tiny">${label}</div>
+          <div style="font-family:'Segoe UI',sans-serif; font-size:11px; color:var(--id);">${Math.round(pct)}</div>
         </div>
-        <div style="font-family:'Segoe UI',sans-serif; font-size:11px; width:32px; text-align:right;">${Math.round(pct)}</div>
+        <div class="bar"><div class="${barClass}" style="width:${pct}%;"></div></div>
       </div>
     `;
   }
@@ -845,7 +848,37 @@
     const state = G.getCurrent();
     const resolution = window.IFCRace.finalizeRace(_raceState, state);
 
-    // advance round
+    // Cache the race resolution + final order for the post-race view
+    _lastResolution = {
+      finishOrder: resolution.finishOrder,
+      playerPos: resolution.playerPos,
+      dnf: resolution.dnf,
+      dnfReason: resolution.dnfReason,
+      track: _raceState.track,
+      playerRunner: _raceState.runners.find(r => r.isPlayer),
+    };
+
+    // Move to post-race phase (do NOT advance round yet)
+    state.phase = 'post-race';
+    G.clampState(state);
+    G.saveGame(state);
+
+    // Clear race-specific state, but keep the finish order for the report
+    _raceState = null;
+    _raceMode = 'idle';
+    _qualiResult = null;
+
+    const finishLine = resolution.dnf
+      ? `DNF — ${resolution.dnfReason}`
+      : `Finished P${resolution.playerPos}.`;
+    pushFeedback(finishLine);
+
+    render();
+  }
+
+  // Advance from post-race to the next round's pre-race week
+  function advanceRound() {
+    const state = G.getCurrent();
     state.round += 1;
     if (state.round > 12) {
       state.phase = 'ended';
@@ -859,19 +892,9 @@
       state.flags.pressBuffer = 0;
       state.flags.flewWithBrokenProtection = false;
     }
-
+    _lastResolution = null;
     G.clampState(state);
     G.saveGame(state);
-
-    _raceState = null;
-    _raceMode = 'idle';
-    _qualiResult = null;
-
-    const finishLine = resolution.dnf
-      ? `DNF — ${resolution.dnfReason}`
-      : `Finished P${resolution.playerPos}.`;
-    pushFeedback(finishLine);
-
     render();
   }
 
@@ -901,6 +924,145 @@
           <i>Ending sequences arrive in a later phase.</i>
         </p>
       </div>
+    `;
+  }
+
+  // ==========================================
+  // POST-RACE — Daily Prophet + interviews
+  // ==========================================
+  function renderPostRaceScreen(state) {
+    const res = _lastResolution;
+    if (!res) {
+      // No cached result — this can happen if user reloaded mid-post-race.
+      // Just offer advance.
+      return `
+        <div class="sh">Post-Race</div>
+        <div class="card">
+          <div class="text-small">Race resolved. Ready for next round.</div>
+          <div class="divider"></div>
+          <button class="btn btn-primary" onclick="UI.advanceRound()">
+            <span class="btn-label">Continue</span>
+            <span class="btn-body">Begin next round</span>
+          </button>
+        </div>
+      `;
+    }
+
+    const P = window.IFC.POINTS;
+    const PR = window.IFC.PRIZE;
+    const track = res.track;
+    const finishOrder = res.finishOrder;
+    const player = finishOrder.find(r => r.isPlayer);
+
+    const headline = window.IFCPostRace.generateHeadline(finishOrder, track, res.playerRunner);
+    const subhead = window.IFCPostRace.generateSubhead(finishOrder, track, res.playerRunner);
+    const paras = window.IFCPostRace.generateBodyCopy(finishOrder, track, res.playerRunner, state);
+
+    // Results table
+    let resultsRows = '';
+    finishOrder.forEach((r, i) => {
+      const rider = RIDERS[r.riderId];
+      const team = TEAMS[r.teamId];
+      const pos = r.dnf ? 'DNF' : r.position;
+      const pts = r.dnf ? 0 : (P[r.position] || 0);
+      resultsRows += `
+        <div style="display:flex; align-items:center; gap:10px; padding:7px 0;
+                    ${i < finishOrder.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
+                    ${r.isPlayer ? 'font-weight:bold; background:rgba(200,168,50,0.07);' : ''}
+                    ${r.dnf ? 'opacity:0.55;' : ''}">
+          <div style="width:30px; text-align:right; font-family:'Segoe UI',sans-serif; font-size:12px; color:var(--im);">
+            ${pos}
+          </div>
+          <div style="width:3px; height:22px; background: ${team.colourA}; border-radius:2px;"></div>
+          <div style="flex:1; font-size:13px;">
+            ${rider.name}
+            ${r.isPlayer ? '<span class="badge badge-gold" style="margin-left:6px;">YOU</span>' : ''}
+          </div>
+          <div class="text-tiny" style="opacity:0.55; min-width:40px; text-align:right;">${r.dnf ? '—' : `+${pts}pt`}</div>
+        </div>
+      `;
+    });
+
+    // Podium interviews (top 3 only, non-DNF)
+    const podium = finishOrder.filter(r => !r.dnf).slice(0, 3);
+    let interviewsHtml = '';
+    podium.forEach(r => {
+      const intv = window.IFCPostRace.generateInterview(r.riderId, r.position, track, r.isPlayer);
+      if (!intv.lines || intv.lines.length === 0) return;
+      let qa = '';
+      intv.lines.forEach(line => {
+        qa += `
+          <div style="margin:10px 0;">
+            <div class="text-tiny" style="color:var(--im); margin-bottom:3px;">${line.q}</div>
+            <div style="font-size:14px; line-height:1.5;">${line.a}</div>
+          </div>
+        `;
+      });
+      const team = TEAMS[intv.rider.teamId];
+      interviewsHtml += `
+        <div class="card" style="border-left:3px solid ${team.colourA};">
+          <div class="text-tiny text-gold">P${intv.position} · ${intv.rider.name}</div>
+          <div class="divider" style="margin:10px 0;"></div>
+          ${qa}
+        </div>
+      `;
+    });
+
+    // Player-specific summary card (points + prize + condition shift)
+    const playerFinish = finishOrder.find(r => r.isPlayer);
+    const playerPts = playerFinish.dnf ? 0 : (P[playerFinish.position] || 0);
+    const playerPrize = playerFinish.dnf ? 0 : (PR[playerFinish.position] || 0);
+
+    const summaryCard = `
+      <div class="sh">Your Race</div>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:12px; align-items:baseline;">
+          <div>
+            <div class="text-tiny">Result</div>
+            <div style="font-size:20px; font-weight:bold; margin-top:2px;">
+              ${playerFinish.dnf ? 'DNF' : `P${playerFinish.position}`}
+            </div>
+            ${playerFinish.dnf && res.dnfReason ? `<div class="text-tiny text-crimson mt-8">${res.dnfReason}</div>` : ''}
+          </div>
+          <div style="text-align:right;">
+            <div class="text-tiny">Points / Prize</div>
+            <div style="font-size:16px; font-weight:bold; margin-top:2px;">
+              +${playerPts} pts · ${playerPrize.toLocaleString()} G
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    return `
+      <!-- Daily Prophet style headline card -->
+      <div class="card" style="background:var(--pl); border:2px solid var(--nv); padding:20px;">
+        <div class="text-tiny" style="color:var(--cr); letter-spacing:3px;">THE DAILY PROPHET · SPORT</div>
+        <div style="font-family:Georgia,serif; font-size:22px; font-weight:bold; line-height:1.2; margin-top:10px; color:var(--nv);">
+          ${headline}
+        </div>
+        ${subhead ? `<div class="text-small" style="font-style:italic; margin-top:8px; color:var(--id);">${subhead}</div>` : ''}
+        <div class="divider"></div>
+        ${paras.map(p => `<p style="margin:8px 0; font-size:14px; line-height:1.55;">${p}</p>`).join('')}
+      </div>
+
+      ${summaryCard}
+
+      <div class="sh">Classified Results</div>
+      <div class="card">
+        <div class="text-tiny text-gold">${track.name} · ${track.nickname}</div>
+        <div class="divider" style="margin:10px 0;"></div>
+        ${resultsRows}
+      </div>
+
+      <div class="sh">Podium Interviews</div>
+      ${interviewsHtml || '<div class="card"><div class="text-small" style="color:var(--im);"><i>No interviews recorded.</i></div></div>'}
+
+      <div class="divider"></div>
+      <button class="btn btn-primary" onclick="UI.advanceRound()">
+        <span class="btn-label">Continue</span>
+        <span class="btn-body">Close the weekend · on to the next round</span>
+      </button>
     `;
   }
 
@@ -1111,7 +1273,7 @@
     togglePanel, toggleDetails,
     runAction, endWeek,
     // race flow
-    startRace, beginRace, resolveIntervention, finishRace,
+    startRace, beginRace, resolveIntervention, finishRace, advanceRound,
     // legacy / unused but kept
     skipQualifying, skipRace,
   };

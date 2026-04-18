@@ -301,7 +301,7 @@ const POINTS = { 1: 10, 2: 5, 3: 3, 4: 2, 5: 1, 6: 0, 7: 0 };
 const PRIZE = { 1: 2500, 2: 1500, 3: 800, 4: 400, 5: 200, 6: 0, 7: 0 };
 
 // ---------- WEEKLY OPERATING COST ----------
-const OPERATING_COST = 3000;
+const OPERATING_COST = 1500;
 
 // ---------- ACTION POINTS PER WEEK ----------
 const AP_PER_WEEK = 3;

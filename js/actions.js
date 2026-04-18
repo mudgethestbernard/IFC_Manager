@@ -18,7 +18,7 @@
       group: 'rd',
       label: 'Speed R&D (Modest)',
       desc: 'Refine the Acceleration Charm stack. +3 Speed.',
-      ap: 1, cost: 1500,
+      ap: 1, cost: 600,
       canRun: (s) => s.broom.speed < 100,
       apply: (s) => {
         s.broom.speed += 3;
@@ -29,7 +29,7 @@
       group: 'rd',
       label: 'Speed R&D (Major)',
       desc: 'Full rework of the upper charm layers. +5 Speed.',
-      ap: 1, cost: 3000,
+      ap: 1, cost: 1400,
       canRun: (s) => s.broom.speed < 100,
       apply: (s) => {
         s.broom.speed += 5;
@@ -40,7 +40,7 @@
       group: 'rd',
       label: 'Handling R&D (Modest)',
       desc: 'Fine-tune the Stability Charm. +3 Handling.',
-      ap: 1, cost: 1500,
+      ap: 1, cost: 600,
       canRun: (s) => s.broom.handling < 100,
       apply: (s) => {
         s.broom.handling += 3;
@@ -51,7 +51,7 @@
       group: 'rd',
       label: 'Handling R&D (Major)',
       desc: 'Rebalance the Manoeuvrability / Stability pairing. +5 Handling.',
-      ap: 1, cost: 3000,
+      ap: 1, cost: 1400,
       canRun: (s) => s.broom.handling < 100,
       apply: (s) => {
         s.broom.handling += 5;
@@ -62,7 +62,7 @@
       group: 'rd',
       label: 'Reliability R&D (Modest)',
       desc: 'Reinforce Structural layer. +3 Reliability.',
-      ap: 1, cost: 1500,
+      ap: 1, cost: 600,
       canRun: (s) => s.broom.reliability < 100,
       apply: (s) => {
         s.broom.reliability += 3;
@@ -73,7 +73,7 @@
       group: 'rd',
       label: 'Reliability R&D (Major)',
       desc: 'Reseat the base layers. +5 Reliability.',
-      ap: 1, cost: 3000,
+      ap: 1, cost: 1400,
       canRun: (s) => s.broom.reliability < 100,
       apply: (s) => {
         s.broom.reliability += 5;
@@ -86,7 +86,7 @@
       group: 'train',
       label: 'Pit Crew Training',
       desc: 'Drill the spell-layer sequence. Pit stop −0.5s, Mastery +5.',
-      ap: 1, cost: 800,
+      ap: 1, cost: 350,
       canRun: (s) => s.pitBase > 6,
       apply: (s) => {
         s.pitBase = Math.max(6, s.pitBase - 0.5);
@@ -112,7 +112,7 @@
       group: 'rider',
       label: 'Therapy Session',
       desc: 'A professional consults on the war-adjacent symptoms. Mental +20. First session of the season costs Morale −5 (the team is protective).',
-      ap: 1, cost: 500,
+      ap: 1, cost: 250,
       canRun: (s) => s.rider.mental < 100,
       apply: (s) => {
         s.rider.mental += 20;
@@ -131,7 +131,7 @@
       group: 'rider',
       label: 'Simulator Training',
       desc: 'Hours on the training track. Qualifying bonus next round.',
-      ap: 1, cost: 300,
+      ap: 1, cost: 150,
       canRun: (s) => true,
       apply: (s) => {
         s.flags.simBonusActive = true;
@@ -142,7 +142,7 @@
       group: 'rider',
       label: 'Press Training with Lydia',
       desc: 'Lydia drills him on safe answers. Buffers the next interview disaster.',
-      ap: 1, cost: 200,
+      ap: 1, cost: 100,
       canRun: (s) => true,
       apply: (s) => {
         s.flags.pressBuffer = (s.flags.pressBuffer || 0) + 1;
@@ -169,7 +169,7 @@
       group: 'scout',
       label: 'Scout Rivals',
       desc: 'Intelligence on the next race. Reveals track conditions and a rival detail.',
-      ap: 1, cost: 400,
+      ap: 1, cost: 200,
       canRun: (s) => !s.flags.scoutActive,
       apply: (s) => {
         s.flags.scoutActive = true;

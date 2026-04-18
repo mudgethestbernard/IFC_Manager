@@ -78,12 +78,21 @@
       const rider = RIDERS[g.riderId];
       const baseTeam = TEAMS[g.teamId];
       const broom = g.isPlayer ? (state.broom || baseTeam.broom) : baseTeam.broom;
+      // Each rider's "race pace" — a roughly stable underlying speed,
+      // perturbed each lap by layer state, stamina, and small noise.
+      const pacePts = (
+        rider.skill.pace * 0.45 +
+        rider.skill.consistency * 0.15 +
+        broom.speed * 0.20 +
+        broom.handling * 0.20
+      );
       return {
         riderId: g.riderId,
         teamId: g.teamId,
         isPlayer: g.isPlayer,
         grid: g.grid,
         position: g.grid,
+        pacePts,
         layers: {
           structural: 100,
           cushioning: 100,
@@ -104,6 +113,7 @@
         broomHandling: broom.handling,
         broomReliability: broom.reliability,
         pitsTaken: 0,
+        pitPlanned: pickPitLap(track.laps), // NPCs: plan a pit lap
         needsPit: false,
         mustPit: false,
         dnf: false,
@@ -122,7 +132,15 @@
       interventionsScheduled: pickInterventionLaps(track.laps),
       interventionsFired: 0,
       lastCommentator: null,
+      prevPositions: {}, // track lap-to-lap swaps for commentary
     };
+  }
+
+  function pickPitLap(totalLaps) {
+    // NPCs pit roughly mid-race, with variance
+    const mid = Math.floor(totalLaps * 0.55);
+    const variance = Math.floor(totalLaps * 0.15);
+    return mid + Math.floor((Math.random() - 0.5) * 2 * variance);
   }
 
   function pickInterventionLaps(totalLaps) {
@@ -141,107 +159,226 @@
     raceState.lap += 1;
     const track = raceState.track;
 
+    // snapshot previous positions
+    const prev = {};
+    raceState.runners.forEach(r => { prev[r.riderId] = r.position; });
+
     // Deplete spell layers for all runners
     for (const r of raceState.runners) {
       if (r.dnf) continue;
       depleteLayers(r, track);
       checkLayerCritical(r, raceState);
+    }
+
+    // NPC auto-pit behaviour
+    for (const r of raceState.runners) {
+      if (r.dnf || r.isPlayer) continue;
+      maybeNPCPit(r, raceState);
+    }
+
+    // Mechanical failures (track-sensitive)
+    for (const r of raceState.runners) {
+      if (r.dnf) continue;
       checkMechanical(r, raceState);
     }
 
-    // Recompute positions based on pace + noise
-    reorderPositions(raceState);
+    // Adjust positions — swap-based, realistic (1-2 changes per lap)
+    adjustPositions(raceState, prev);
 
-    // Generate commentary (1-2 lines per lap, variable)
-    generateCommentary(raceState, playerState);
+    // Generate commentary (reacts to actual changes)
+    generateCommentary(raceState, playerState, prev);
 
     return raceState;
   }
 
   function depleteLayers(runner, track) {
-    // base depletion; accelerated by aggression and track type
-    const base = 1.4;
-    const agg = 1.0 - (runner.tyreMgmt / 300); // worse management = faster depletion
-    const trackMod = track.type === 'high-speed' ? 1.2
-                   : track.type === 'technical' ? 1.1
+    // Base depletion is faster now — pit stop is mandatory roughly once per race
+    const base = 3.2;
+    const mgmtFactor = 1.5 - (runner.tyreMgmt / 150); // low tyreMgmt → faster drain
+    const trackMod = track.type === 'high-speed' ? 1.25
+                   : track.type === 'technical' ? 1.10
+                   : track.type === 'special' ? 1.15
                    : 1.0;
 
-    const d = base * trackMod * (1.4 - agg); // faster drain for low tyreMgmt
-    runner.layers.acceleration -= d * 1.2;
-    runner.layers.manoeuvrability -= d * 0.9;
-    runner.layers.aero -= d * 0.8;
-    runner.layers.stability -= d * 0.7;
-    runner.layers.braking -= d * 0.6;
-    runner.layers.protection -= d * 0.5;
-    runner.layers.cushioning -= d * 0.3;
+    const d = base * trackMod * mgmtFactor;
+
+    runner.layers.acceleration -= d * 1.25;
+    runner.layers.manoeuvrability -= d * 1.00;
+    runner.layers.aero -= d * 0.85;
+    runner.layers.stability -= d * 0.75;
+    runner.layers.braking -= d * 0.65;
+    runner.layers.protection -= d * 0.55;
+    runner.layers.cushioning -= d * 0.35;
     runner.layers.structural -= d * 0.15;
 
-    // clamp
     for (const k of Object.keys(runner.layers)) {
       runner.layers[k] = Math.max(0, runner.layers[k]);
     }
   }
 
   function checkLayerCritical(runner, raceState) {
-    // Protection charm breaking — the Cassian moment
     if (runner.layers.protection < 15 && !runner.mustPit) {
       runner.mustPit = true;
       runner.pitDeadline = raceState.lap + 5;
     }
-
-    // Acceleration or manoeuvrability critical
     if (runner.layers.acceleration < 20 || runner.layers.manoeuvrability < 20) {
       runner.needsPit = true;
     }
   }
 
+  function maybeNPCPit(r, raceState) {
+    // NPCs must pit at least once. Forced pit if they've gone too long.
+    const lap = raceState.lap;
+    const maxLap = raceState.maxLap;
+
+    const shouldPit =
+      (r.pitsTaken === 0 && lap >= r.pitPlanned) ||
+      (r.mustPit && r.pitsTaken === 0) ||
+      (r.needsPit && r.pitsTaken === 0 && Math.random() < 0.4) ||
+      // last-chance safety net — NPC must pit before the last 6 laps
+      (r.pitsTaken === 0 && lap >= maxLap - 6);
+
+    if (!shouldPit) return;
+
+    // Execute NPC pit
+    const team = TEAMS[r.teamId];
+    const baseTime = team.pitBase;
+    const positionsLost = Math.max(1, Math.min(3, Math.round(baseTime / 5)));
+
+    r.position = Math.min(7, r.position + positionsLost);
+    r.pitsTaken += 1;
+    r.timeOffset += baseTime;
+    for (const k of Object.keys(r.layers)) r.layers[k] = Math.min(100, r.layers[k] + 70);
+    r.mustPit = false;
+    r.needsPit = false;
+
+    emitCommentary(raceState, 'etienne',
+      `"${lastName(r.riderId)} into the pits — ${baseTime.toFixed(1)} seconds."`);
+  }
+
   function checkMechanical(runner, raceState) {
-    // Reliability roll — very rare failure
-    const failChance = (100 - runner.broomReliability) / 8000;
-    if (Math.random() < failChance) {
-      runner.dnf = true;
-      runner.dnfReason = 'Broom failure';
-      emitCommentary(raceState, 'etienne',
-        `${RIDERS[runner.riderId].name.split(' ').slice(-1)[0]} is out. Structural integrity lost on the exit.`);
+    const track = raceState.track;
+
+    // Base failure chance, scaled by broom reliability and track hostility
+    const relFactor = (100 - runner.broomReliability) / 9000;
+
+    // Track hostility multiplier
+    let trackMult = 1.0;
+    if (track.id === 'alpine') trackMult = 2.8;        // extreme strain
+    else if (track.id === 'romanian') trackMult = 1.8; // mountain, dragon risk
+    else if (track.id === 'irish') trackMult = 1.7;    // cliff winds
+    else if (track.id === 'northsea') trackMult = 1.6; // storms
+    else if (track.type === 'over-water') trackMult = 1.3;
+    else if (track.type === 'technical') trackMult = 1.2;
+
+    // Failure chance also rises if runner never pitted late in race
+    if (runner.pitsTaken === 0 && raceState.lap > raceState.maxLap * 0.7) {
+      trackMult *= 2.0;
     }
 
-    // Protection charm deadline
-    if (runner.mustPit && raceState.lap > runner.pitDeadline && runner.pitsTaken === 0) {
-      // Regulation violation or crash
+    const failChance = relFactor * trackMult;
+
+    if (Math.random() < failChance) {
       runner.dnf = true;
-      runner.dnfReason = 'Protection charm failure — did not pit in time';
+      runner.dnfReason = pickDnfReason(track);
+      emitCommentary(raceState, 'etienne',
+        `"${lastName(runner.riderId)} is out. ${runner.dnfReason}."`);
+      return;
+    }
+
+    // Protection-charm deadline breach
+    if (runner.mustPit && raceState.lap > runner.pitDeadline && runner.pitsTaken === 0) {
+      runner.dnf = true;
+      runner.dnfReason = 'Protection Charm failure — pit deadline missed';
+      emitCommentary(raceState, 'lee',
+        `"${lastName(runner.riderId)} has lost the Protection Charm entirely! He's out!"`);
     }
   }
 
-  function reorderPositions(raceState) {
-    // compute per-lap pace score with noise
-    const scored = raceState.runners.map(r => {
-      if (r.dnf) return { r, score: -9999 };
-      const accelFactor = r.layers.acceleration / 100;
-      const steerFactor = r.layers.manoeuvrability / 100;
-      const base = r.pace * 0.4 + r.broomSpeed * 0.25 + r.broomHandling * 0.15;
-      const layerHit = (accelFactor + steerFactor) / 2;
-      const stamina = (r.physical / 100) * 0.9 + 0.1;
-      const noise = (Math.random() - 0.5) * 14;
-      const score = base * layerHit * stamina + r.consistency * 0.08 + noise - r.timeOffset * 0.6;
-      return { r, score };
-    });
+  function pickDnfReason(track) {
+    if (track.id === 'alpine') {
+      return randChoice(['Strain-induced blackout', 'Iced bristles', 'Ice-wall contact']);
+    }
+    if (track.id === 'romanian') {
+      return randChoice(['Impact with rock face', 'Handle stress fracture']);
+    }
+    if (track.id === 'irish') {
+      return randChoice(['Swept wide by a gust', 'Cliff contact']);
+    }
+    if (track.id === 'northsea' || track.type === 'over-water') {
+      return randChoice(['Wave contact', 'Weatherproofing failure']);
+    }
+    if (track.id === 'egyptian') {
+      return randChoice(['Sandstorm damage', 'Ancient-magic interference']);
+    }
+    if (track.type === 'technical') {
+      return randChoice(['Manoeuvrability Charm collapse', 'Broom contact']);
+    }
+    return randChoice(['Acceleration Charm failure', 'Structural failure', 'Bristle shedding']);
+  }
 
-    // existing order influences — reduce churn
-    scored.sort((a, b) => b.score - a.score);
-    scored.forEach((s, i) => {
-      if (!s.r.dnf) s.r.position = i + 1;
-    });
+  function randChoice(a) { return a[Math.floor(Math.random() * a.length)]; }
 
-    // push DNFs to the end
-    raceState.runners.sort((a, b) => {
-      if (a.dnf && !b.dnf) return 1;
-      if (!a.dnf && b.dnf) return -1;
-      return a.position - b.position;
-    });
-    raceState.runners.forEach((r, i) => {
-      if (!r.dnf) r.position = i + 1;
-    });
+  // ============================================
+  //   POSITION ADJUSTMENT — swap-based, realistic
+  // ============================================
+  function adjustPositions(raceState, prev) {
+    const lap = raceState.lap;
+    const total = raceState.maxLap;
+
+    // Compute each runner's effective lap pace right now
+    const paceMap = {};
+    for (const r of raceState.runners) {
+      if (r.dnf) { paceMap[r.riderId] = -9999; continue; }
+      const layerHit = (r.layers.acceleration + r.layers.manoeuvrability + r.layers.aero) / 300;
+      const stamina = 0.6 + (r.physical / 100) * 0.4;
+      const mental = 0.85 + (r.mental / 100) * 0.15;
+      const noise = (Math.random() - 0.5) * 4;
+      const timeCost = r.timeOffset * 0.5; // pit cost decays over laps
+      r.timeOffset = Math.max(0, r.timeOffset - 0.5);
+      const pace = r.pacePts * layerHit * stamina * mental + noise - timeCost;
+      paceMap[r.riderId] = pace;
+    }
+
+    // In the first lap or two, more chaos — bigger shuffles
+    // After that, swap-based: only rarely do adjacent runners swap
+    const openingLaps = lap <= 2;
+    const churnChance = openingLaps ? 0.55 : 0.20;
+
+    // Get runners currently running (not DNF), sorted by current position
+    const running = raceState.runners.filter(r => !r.dnf).sort((a, b) => a.position - b.position);
+
+    // For each adjacent pair, consider a swap based on pace difference
+    for (let i = 0; i < running.length - 1; i++) {
+      const front = running[i];
+      const back = running[i + 1];
+      const frontPace = paceMap[front.riderId];
+      const backPace = paceMap[back.riderId];
+
+      // Positive diff = back runner is faster
+      const diff = backPace - frontPace;
+
+      if (diff <= 0) continue;
+
+      // Probability of swap scales with pace gap and overtaking skill
+      let pSwap = churnChance * (diff / 20) * (0.7 + back.overtaking / 300);
+      // Harder to overtake at bottlenecks / technical tracks
+      const track = raceState.track;
+      if (track.traits && track.traits.includes('bottleneck')) pSwap *= 0.75;
+      if (track.type === 'technical') pSwap *= 0.85;
+      pSwap = Math.min(pSwap, 0.55);
+
+      if (Math.random() < pSwap) {
+        // swap
+        [front.position, back.position] = [back.position, front.position];
+      }
+    }
+
+    // Ensure DNFs are at the end
+    const dnfs = raceState.runners.filter(r => r.dnf);
+    const active = raceState.runners.filter(r => !r.dnf).sort((a, b) => a.position - b.position);
+    active.forEach((r, i) => { r.position = i + 1; });
+    dnfs.forEach((r, i) => { r.position = active.length + i + 1; });
   }
 
   // ============================================
@@ -256,12 +393,11 @@
     raceState.lastCommentator = who;
   }
 
-  function generateCommentary(raceState, playerState) {
+  function generateCommentary(raceState, playerState, prevPositions) {
     const player = raceState.runners.find(r => r.isPlayer);
     const lap = raceState.lap;
     const total = raceState.maxLap;
 
-    // opening line every few laps
     const atQuarter = lap === Math.floor(total * 0.25);
     const atHalf = lap === Math.floor(total * 0.5);
     const atThreeQ = lap === Math.floor(total * 0.75);
@@ -274,34 +410,79 @@
       return;
     }
 
-    if (atQuarter) {
-      emitCommentary(raceState, 'etienne',
-        `"Quarter distance. ${lastName(leaderOf(raceState).riderId)} leads. The field is settling."`);
-      return;
-    }
+    // --- Reactive commentary on position changes ---
+    // Find all runners whose position changed this lap
+    const swaps = [];
+    raceState.runners.forEach(r => {
+      if (r.dnf) return;
+      const before = prevPositions[r.riderId];
+      if (before && before !== r.position) {
+        swaps.push({ r, from: before, to: r.position });
+      }
+    });
 
-    if (atHalf) {
-      emitCommentary(raceState, 'etienne',
-        `"Half distance. Spell layers will start to bite from here."`);
-      return;
-    }
+    // Prioritise swaps involving the player, the lead, or the podium
+    swaps.sort((a, b) => {
+      const aScore = (a.r.isPlayer ? 100 : 0) + (a.to <= 3 ? 50 - a.to : 0);
+      const bScore = (b.r.isPlayer ? 100 : 0) + (b.to <= 3 ? 50 - b.to : 0);
+      return bScore - aScore;
+    });
 
-    if (atThreeQ) {
-      emitCommentary(raceState, 'lee',
-        `"Three-quarter distance! This is where the serious ones make their move!"`);
-      return;
-    }
+    // Emit at most ONE swap-based line per lap
+    if (swaps.length > 0) {
+      const topSwap = swaps[0];
+      const r = topSwap.r;
+      const gained = topSwap.from > topSwap.to;
+      if (r.isPlayer) {
+        if (gained) {
+          emitCommentary(raceState, 'lee',
+            `"Bayes is through! Up to P${r.position} — did you see that line?"`);
+        } else {
+          emitCommentary(raceState, 'etienne',
+            `"Bayes loses a place. Down to P${r.position}."`);
+        }
+      } else {
+        // non-player swap — only narrate if it's at the sharp end
+        if (r.position === 1 && gained) {
+          emitCommentary(raceState, 'lee',
+            `"And we have a NEW LEADER! ${lastName(r.riderId)} takes it!"`);
+        } else if (r.position <= 3 && gained) {
+          emitCommentary(raceState, 'etienne',
+            `"${lastName(r.riderId)} into P${r.position}."`);
+        } else if (r.position === 1 && !gained) {
+          // leader got overtaken — handled above via the gainer
+        }
+      }
+    } else {
+      // No swaps — narrate checkpoints or colour
+      if (atQuarter) {
+        emitCommentary(raceState, 'etienne',
+          `"Quarter distance. ${lastName(leaderOf(raceState).riderId)} leads. The field is settling."`);
+        return;
+      }
+      if (atHalf) {
+        emitCommentary(raceState, 'etienne',
+          `"Half distance. Spell layers will start to bite from here."`);
+        return;
+      }
+      if (atThreeQ) {
+        emitCommentary(raceState, 'lee',
+          `"Three-quarter distance! This is where the serious ones make their move!"`);
+        return;
+      }
+      if (atFinal) {
+        const leader = leaderOf(raceState);
+        if (leader) emitCommentary(raceState, 'lee',
+          `"Final lap! ${lastName(leader.riderId)} leading into the last sector!"`);
+        return;
+      }
 
-    if (atFinal) {
-      const leader = leaderOf(raceState);
-      emitCommentary(raceState, 'lee',
-        `"Final lap! ${lastName(leader.riderId)} leading into the last sector!"`);
-      return;
+      // Mid-race colour — only emit ~40% of the time
+      if (Math.random() < 0.4) {
+        const event = pickColourEvent(raceState, player, playerState);
+        if (event) emitCommentary(raceState, event.who, event.text);
+      }
     }
-
-    // Mid-race colour: pick something happening
-    const event = pickColourEvent(raceState, player, playerState);
-    if (event) emitCommentary(raceState, event.who, event.text);
   }
 
   function pickColourEvent(raceState, player, playerState) {
