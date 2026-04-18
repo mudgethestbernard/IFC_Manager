@@ -186,8 +186,8 @@
         if (act.cost === 0 && act.ap === 0) costStr.push('Free');
 
         items += `
-          <button class="btn ${afford ? '' : ''}" ${afford ? '' : 'disabled'}
-                  onclick="UI.runAction('${id}')">
+          <button class="btn" ${afford ? '' : 'disabled'}
+                  onclick="event.stopPropagation(); UI.runAction('${id}')">
             <span class="btn-label">${costStr.join(' · ')}</span>
             <div style="font-weight:bold; margin-bottom:2px;">${act.label}</div>
             <div class="text-small">${act.desc}</div>
@@ -195,15 +195,17 @@
         `;
       });
       panel = `
-        <div style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--pd);">
+        <div style="margin-top:12px; padding-top:12px; border-top:1px dashed var(--pd);"
+             onclick="event.stopPropagation()">
           ${items}
         </div>
       `;
     }
 
     return `
-      <div class="card card-hover" onclick="UI.togglePanel('${groupId}')">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;"
+             onclick="UI.togglePanel('${groupId}')">
           <div style="flex:1;">
             <div class="text-tiny text-gold">${label}</div>
             <div class="text-small mt-8" style="color:var(--id);">${desc}</div>
@@ -221,8 +223,9 @@
     // collapsed; user taps to open
     return `
       <div class="sh">Team Details</div>
-      <div class="card card-hover" onclick="UI.toggleDetails()">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; cursor:pointer;"
+             onclick="UI.toggleDetails()">
           <div class="text-small" style="color:var(--id);">
             Rider · Broom · Standings
           </div>
@@ -231,7 +234,8 @@
           </div>
         </div>
         ${_detailsOpen ? `
-          <div style="margin-top:14px; padding-top:14px; border-top:1px dashed var(--pd);">
+          <div style="margin-top:14px; padding-top:14px; border-top:1px dashed var(--pd);"
+               onclick="event.stopPropagation()">
             ${renderRiderBlock(state)}
             <div style="height:8px;"></div>
             ${renderBroomBlock(state)}
