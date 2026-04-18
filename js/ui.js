@@ -76,14 +76,28 @@
     html += '<main class="fade-in">';
 
     // --- PHASE-DEPENDENT BODY ---
-    if (state.phase === 'pre-race') {
-      html += renderPreRace(state, track, standing);
-    } else if (state.phase === 'qualifying') {
-      html += renderQualifyingStub(state, track);
-    } else if (state.phase === 'race') {
-      html += renderRaceStub(state, track);
-    } else if (state.phase === 'ended') {
-      html += renderEndedStub(state);
+    try {
+      if (state.phase === 'pre-race') {
+        html += renderPreRace(state, track, standing);
+      } else if (state.phase === 'qualifying') {
+        html += renderQualifyingScreen(state, track);
+      } else if (state.phase === 'race') {
+        html += renderRaceScreen(state, track);
+      } else if (state.phase === 'ended') {
+        html += renderEndedStub(state);
+      } else {
+        html += `<div class="card"><div class="text-small">Unknown phase: ${state.phase}</div></div>`;
+      }
+    } catch (err) {
+      console.error('Render error:', err);
+      html += `
+        <div class="card">
+          <div class="sh sh-crimson">Error</div>
+          <div class="text-small">Something went wrong rendering this phase.</div>
+          <pre style="font-size:10px; color:var(--cr); margin-top:8px; white-space:pre-wrap;">${err.message}</pre>
+          <button class="btn btn-inline mt-12" onclick="UI.goToMenu()">Back to Menu</button>
+        </div>
+      `;
     }
 
     // --- MENU FOOTER ---
@@ -392,9 +406,8 @@
   // ==========================================
   let _qualiResult = null;
 
-  function renderQualifyingStub(state, track) {
+  function renderQualifyingScreen(state, track) {
     if (!_qualiResult) {
-      // lazy-run qualifying once
       _qualiResult = window.IFCRace.simulateQualifying(state);
       const playerEntry = _qualiResult.find(e => e.isPlayer);
       state.gridPosition = playerEntry ? playerEntry.grid : 4;
@@ -402,6 +415,9 @@
     }
     const result = _qualiResult;
     const playerEntry = result.find(e => e.isPlayer);
+    if (!playerEntry) {
+      return `<div class="card"><div class="text-small">Qualifying failed to resolve.</div></div>`;
+    }
 
     let rows = '';
     result.forEach((e, i) => {
@@ -425,7 +441,6 @@
       `;
     });
 
-    // pick a commentator line about the result
     let commentLine = '';
     if (playerEntry.grid === 1) {
       commentLine = `<i>Jordan: "Pole for Bayes! Has he even woken up?"</i>`;
@@ -462,13 +477,10 @@
   let _raceMode = 'idle'; // idle | running | paused | intervention | finished
   let _pendingIntervention = null;
 
-  function renderRaceStub(state, track) {
-    // If a race hasn't been set up yet, show the grid + start button
+  function renderRaceScreen(state, track) {
     if (!_raceState && _raceMode === 'idle') {
       return renderRaceIntro(state, track);
     }
-
-    // Otherwise, show live commentary / position board
     return renderRaceLive(state, track);
   }
 
@@ -499,16 +511,66 @@
     const rs = _raceState;
     if (!rs) return '';
 
+    return `
+      <div id="race-live">
+        ${renderRaceHeader(rs)}
+        ${renderRaceLayers(rs)}
+        <div class="sh">Running Order</div>
+        <div class="card card-tight" id="race-order">${renderRunningOrderRows(rs)}</div>
+        <div class="sh">Commentary</div>
+        <div class="card card-tight" style="max-height:320px; overflow-y:auto;" id="commentary-log">
+          ${renderCommentaryRows(rs)}
+        </div>
+        <div id="race-finish-btn">${renderRaceFinishBtn()}</div>
+      </div>
+    `;
+  }
+
+  function renderRaceHeader(rs) {
     const player = rs.runners.find(r => r.isPlayer);
     const playerPos = player ? (player.dnf ? 'DNF' : `P${player.position}`) : '—';
+    const progressPct = (rs.lap / rs.maxLap) * 100;
+    return `
+      <div class="sh sh-crimson"><span class="dot-live"></span>Live · ${rs.track.name}</div>
+      <div class="card card-tight" id="race-header">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <div class="text-tiny">Lap</div>
+            <div style="font-size:18px; font-weight:bold;" id="race-lap">${rs.lap} / ${rs.maxLap}</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="text-tiny">Bayes</div>
+            <div style="font-size:18px; font-weight:bold;" id="race-player-pos">${playerPos}</div>
+          </div>
+        </div>
+        <div class="bar mt-12"><div class="bar-f" id="race-progress" style="width:${progressPct}%;"></div></div>
+      </div>
+    `;
+  }
 
-    // Position bar — top 7 live
-    let posBar = '';
+  function renderRaceLayers(rs) {
+    const player = rs.runners.find(r => r.isPlayer);
+    if (!player || player.dnf) return '<div id="race-layers"></div>';
+    return `
+      <div id="race-layers">
+        <div class="card card-tight">
+          <div class="text-tiny text-gold">Your Broom · Charm Layers</div>
+          ${miniBar('Protection', player.layers.protection, player.layers.protection < 20 ? 'crimson' : null)}
+          ${miniBar('Acceleration', player.layers.acceleration, player.layers.acceleration < 25 ? 'crimson' : null)}
+          ${miniBar('Manoeuvrability', player.layers.manoeuvrability)}
+          ${miniBar('Stability', player.layers.stability)}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRunningOrderRows(rs) {
     const ordered = [...rs.runners].sort((a, b) => {
       if (a.dnf && !b.dnf) return 1;
       if (!a.dnf && b.dnf) return -1;
       return a.position - b.position;
     });
+    let rows = '';
     ordered.forEach((r, i) => {
       const rider = RIDERS[r.riderId];
       const team = TEAMS[r.teamId];
@@ -518,7 +580,7 @@
                        : gridShift > 0 ? `<span style="color:#2d7a5f;">▲${gridShift}</span>`
                        : gridShift < 0 ? `<span style="color:var(--cr);">▼${-gridShift}</span>`
                        : `<span style="color:var(--im);">—</span>`;
-      posBar += `
+      rows += `
         <div style="display:flex; align-items:center; gap:8px; padding:5px 0;
                     ${i < ordered.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
                     ${isPlayer ? 'font-weight:bold; background:rgba(200,168,50,0.07);' : ''}
@@ -536,10 +598,15 @@
         </div>
       `;
     });
+    return rows;
+  }
 
-    // Commentary log — last 8 entries
-    const log = rs.commentary.slice(-8);
-    let logHtml = '';
+  function renderCommentaryRows(rs) {
+    const log = rs.commentary.slice(-12);
+    if (log.length === 0) {
+      return `<div class="text-small" style="color:var(--im);"><i>Awaiting lights out...</i></div>`;
+    }
+    let html = '';
     log.forEach(c => {
       const who = c.who === 'lee' ? 'Jordan'
                 : c.who === 'etienne' ? 'Delacroix'
@@ -548,63 +615,24 @@
       const colour = c.who === 'lee' ? 'var(--cr)'
                   : c.who === 'etienne' ? 'var(--nv)'
                   : 'var(--g)';
-      logHtml += `
+      html += `
         <div style="padding:8px 0; border-bottom:1px dashed var(--pd);">
           <div class="text-tiny" style="color:${colour};">L${c.lap} · ${who}</div>
           <div class="text-small mt-8">${c.text}</div>
         </div>
       `;
     });
+    return html;
+  }
 
-    // Player layers mini-display
-    let layers = '';
-    if (player && !player.dnf) {
-      layers = `
-        <div class="card card-tight">
-          <div class="text-tiny text-gold">Your Broom · Charm Layers</div>
-          ${miniBar('Protection', player.layers.protection, player.layers.protection < 20 ? 'crimson' : null)}
-          ${miniBar('Acceleration', player.layers.acceleration, player.layers.acceleration < 25 ? 'crimson' : null)}
-          ${miniBar('Manoeuvrability', player.layers.manoeuvrability)}
-          ${miniBar('Stability', player.layers.stability)}
-        </div>
-      `;
-    }
-
-    const progressPct = (rs.lap / rs.maxLap) * 100;
-
+  function renderRaceFinishBtn() {
+    if (_raceMode !== 'finished') return '';
     return `
-      <div class="sh sh-crimson"><span class="dot-live"></span>Live · ${track.name}</div>
-      <div class="card card-tight">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <div class="text-tiny">Lap</div>
-            <div style="font-size:18px; font-weight:bold;">${rs.lap} / ${rs.maxLap}</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="text-tiny">Bayes</div>
-            <div style="font-size:18px; font-weight:bold;">${playerPos}</div>
-          </div>
-        </div>
-        <div class="bar mt-12"><div class="bar-f" style="width:${progressPct}%;"></div></div>
-      </div>
-
-      ${layers}
-
-      <div class="sh">Running Order</div>
-      <div class="card card-tight">${posBar}</div>
-
-      <div class="sh">Commentary</div>
-      <div class="card card-tight" style="max-height:320px; overflow-y:auto;" id="commentary-log">
-        ${logHtml || '<div class="text-small" style="color:var(--im);"><i>Awaiting lights out...</i></div>'}
-      </div>
-
-      ${_raceMode === 'finished' ? `
-        <div class="divider"></div>
-        <button class="btn btn-primary" onclick="UI.finishRace()">
-          <span class="btn-label">Chequered Flag</span>
-          <span class="btn-body">See the race result</span>
-        </button>
-      ` : ''}
+      <div class="divider"></div>
+      <button class="btn btn-primary" onclick="UI.finishRace()">
+        <span class="btn-label">Chequered Flag</span>
+        <span class="btn-body">See the race result</span>
+      </button>
     `;
   }
 
@@ -656,32 +684,107 @@
 
     window.IFCRace.tickRace(_raceState, state);
 
-    // scroll commentary log to bottom next frame
-    requestAnimationFrame(() => {
-      const log = document.getElementById('commentary-log');
-      if (log) log.scrollTop = log.scrollHeight;
-    });
-
     // check intervention
     const intervention = window.IFCRace.maybeIntervention(_raceState, state);
     if (intervention) {
       _pendingIntervention = intervention;
       _raceMode = 'intervention';
+      // partial update + modal — no full repaint
+      updateRaceLiveSections();
       showInterventionModal(intervention);
-      render();
       return;
     }
 
     // check finish
     if (_raceState.lap >= _raceState.maxLap) {
       _raceMode = 'finished';
-      render();
+      updateRaceLiveSections();
       return;
     }
 
-    // partial re-render just the race section
-    render();
+    // partial update only — no flicker
+    updateRaceLiveSections();
     scheduleNextTick();
+  }
+
+  // Update only the dynamic sections of the race live view.
+  // Avoids tearing down the whole page each lap.
+  function updateRaceLiveSections() {
+    const rs = _raceState;
+    if (!rs) return;
+
+    // header: lap counter + player pos + progress bar
+    const player = rs.runners.find(r => r.isPlayer);
+    const playerPos = player ? (player.dnf ? 'DNF' : `P${player.position}`) : '—';
+
+    const lapEl = document.getElementById('race-lap');
+    if (lapEl) lapEl.textContent = `${rs.lap} / ${rs.maxLap}`;
+
+    const posEl = document.getElementById('race-player-pos');
+    if (posEl) posEl.textContent = playerPos;
+
+    const progEl = document.getElementById('race-progress');
+    if (progEl) progEl.style.width = `${(rs.lap / rs.maxLap) * 100}%`;
+
+    // layers block (inner HTML only, not the container)
+    const layersEl = document.getElementById('race-layers');
+    if (layersEl) {
+      if (player && !player.dnf) {
+        layersEl.innerHTML = `
+          <div class="card card-tight">
+            <div class="text-tiny text-gold">Your Broom · Charm Layers</div>
+            ${miniBar('Protection', player.layers.protection, player.layers.protection < 20 ? 'crimson' : null)}
+            ${miniBar('Acceleration', player.layers.acceleration, player.layers.acceleration < 25 ? 'crimson' : null)}
+            ${miniBar('Manoeuvrability', player.layers.manoeuvrability)}
+            ${miniBar('Stability', player.layers.stability)}
+          </div>
+        `;
+      } else {
+        layersEl.innerHTML = '';
+      }
+    }
+
+    // running order
+    const orderEl = document.getElementById('race-order');
+    if (orderEl) orderEl.innerHTML = renderRunningOrderRows(rs);
+
+    // commentary (append last line only if it's new, instead of replacing all)
+    const logEl = document.getElementById('commentary-log');
+    if (logEl) {
+      const currentCount = logEl.querySelectorAll('[data-c-idx]').length;
+      const total = rs.commentary.length;
+      if (total > currentCount) {
+        // build and append just the new rows
+        for (let i = currentCount; i < total; i++) {
+          const c = rs.commentary[i];
+          const row = document.createElement('div');
+          row.setAttribute('data-c-idx', i);
+          row.style.cssText = 'padding:8px 0; border-bottom:1px dashed var(--pd);';
+          const who = c.who === 'lee' ? 'Jordan'
+                    : c.who === 'etienne' ? 'Delacroix'
+                    : c.who === 'radio' ? 'Team Radio'
+                    : '—';
+          const colour = c.who === 'lee' ? 'var(--cr)'
+                      : c.who === 'etienne' ? 'var(--nv)'
+                      : 'var(--g)';
+          row.innerHTML = `
+            <div class="text-tiny" style="color:${colour};">L${c.lap} · ${who}</div>
+            <div class="text-small mt-8">${c.text}</div>
+          `;
+          // remove the "Awaiting lights out..." placeholder on first append
+          if (currentCount === 0 && i === 0) {
+            logEl.innerHTML = '';
+          }
+          logEl.appendChild(row);
+        }
+        // auto-scroll to bottom
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    }
+
+    // finish button (show when finished)
+    const finishEl = document.getElementById('race-finish-btn');
+    if (finishEl) finishEl.innerHTML = renderRaceFinishBtn();
   }
 
   function showInterventionModal(intervention) {
@@ -730,11 +833,12 @@
     // continue race
     if (_raceState.lap >= _raceState.maxLap) {
       _raceMode = 'finished';
+      updateRaceLiveSections();
     } else {
       _raceMode = 'running';
+      updateRaceLiveSections();
       scheduleNextTick();
     }
-    render();
   }
 
   function finishRace() {
@@ -928,6 +1032,10 @@
     const state = G.getCurrent();
     A.endWeek(state);
     _openPanel = null;
+    // reset any lingering race/quali cache from a prior round
+    _qualiResult = null;
+    _raceState = null;
+    _raceMode = 'idle';
     pushFeedback('The week closes. Operating costs settled. On to Qualifying.');
     render();
   }
