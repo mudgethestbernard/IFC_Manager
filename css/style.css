@@ -1,0 +1,663 @@
+/* ============================================
+   IFC MANAGER — STYLE
+   Inherits the design language of the
+   official IFC publication site.
+   ============================================ */
+
+:root {
+  /* Parchment palette */
+  --p: #f5eed5;
+  --pl: #faf6e8;
+  --pd: #e8dfc0;
+  --pb: #ddd1a8;
+
+  /* Ink */
+  --ink: #1a1008;
+  --id: #4a3f28;
+  --im: #8a7e60;
+  --il: #b5a98a;
+
+  /* Gold */
+  --g: #c8a832;
+  --gb: #e8c840;
+  --gd: #a08820;
+  --gl: #f5e188;
+
+  /* Crimson (live indicators, danger) */
+  --cr: #8b1a1a;
+  --crl: #b83a3a;
+
+  /* Navy (headers, hero) */
+  --nv: #1a2244;
+  --nvl: #2a3464;
+  --nvd: #0d1128;
+
+  /* Track type colours */
+  --tc-hs: #b83a3a;  /* High-speed */
+  --tc-tc: #3a5aa0;  /* Technical */
+  --tc-ow: #2d7a5f;  /* Over-water */
+  --tc-sp: #c17820;  /* Special */
+
+  /* Team colours (7) */
+  --t-nimbus: #4a6fa5;
+  --t-nimbus-2: #c0c8d8;
+  --t-firebolt: #d87428;
+  --t-firebolt-2: #1a1a1a;
+  --t-silver: #8a8a9a;
+  --t-silver-2: #3a3a4a;
+  --t-thunder: #d8b820;
+  --t-thunder-2: #1a3a7a;
+  --t-comet: #1a1a1a;
+  --t-comet-2: #8b1a1a;
+  --t-sweep: #2d5a3a;
+  --t-sweep-2: #c8a832;
+  --t-uni: #b8b8c8;
+  --t-uni-2: #1a3a7a;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--p);
+  color: var(--ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 15px;
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+body {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--p);
+  position: relative;
+}
+
+.sf { font-family: 'Segoe UI', 'Helvetica Neue', sans-serif; }
+
+/* ------------- HEADER ------------- */
+
+.header {
+  background: var(--nv);
+  color: var(--pl);
+  padding: 20px 24px 16px;
+  border-bottom: 3px solid var(--g);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+
+.header-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: var(--gb);
+  background: linear-gradient(90deg, var(--g), var(--gl), var(--g));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 6s linear infinite;
+}
+
+@keyframes shine {
+  to { background-position: 200% center; }
+}
+
+.subtitle {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--il);
+  margin-top: 4px;
+}
+
+.header-meta {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--gl);
+  opacity: 0.85;
+}
+
+/* ------------- SECTION HEADERS ------------- */
+
+.sh {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  color: var(--id);
+  padding-bottom: 8px;
+  margin-bottom: 16px;
+  position: relative;
+  font-weight: 600;
+}
+
+.sh::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, var(--g), transparent);
+}
+
+.sh-crimson { color: var(--cr); }
+.sh-crimson::after {
+  background: linear-gradient(90deg, var(--cr), transparent);
+}
+
+/* ------------- CARDS ------------- */
+
+.card {
+  background: var(--pl);
+  border: 1px solid var(--pd);
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 14px;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(120deg,
+    transparent 30%,
+    rgba(200, 168, 50, 0.08) 50%,
+    transparent 70%
+  );
+  transition: left 0.6s ease;
+  pointer-events: none;
+}
+
+.card:hover::before { left: 100%; }
+
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(26, 16, 8, 0.08);
+  cursor: pointer;
+}
+
+.card-tight { padding: 14px; }
+
+/* ------------- HERO / MAIN MENU ------------- */
+
+.hero {
+  background: var(--nv);
+  color: var(--pl);
+  padding: 56px 24px 48px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(200, 168, 50, 0.12), transparent 50%),
+    radial-gradient(circle at 70% 80%, rgba(139, 26, 26, 0.08), transparent 50%);
+  pointer-events: none;
+}
+
+.hero-title {
+  font-size: 36px;
+  font-weight: bold;
+  letter-spacing: 4px;
+  background: linear-gradient(90deg, var(--g), var(--gl), var(--g));
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shine 6s linear infinite;
+  position: relative;
+}
+
+.hero-sub {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  color: var(--il);
+  margin-top: 12px;
+  position: relative;
+}
+
+.hero-year {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--gl);
+  margin-top: 24px;
+  opacity: 0.75;
+  position: relative;
+}
+
+/* ------------- MAIN CONTENT ------------- */
+
+main {
+  padding: 24px;
+  padding-bottom: 80px;
+}
+
+/* ------------- BUTTONS ------------- */
+
+.btn {
+  display: block;
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--pl);
+  border: 1px solid var(--pd);
+  border-radius: 6px;
+  color: var(--ink);
+  font-family: Georgia, serif;
+  font-size: 15px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(120deg,
+    transparent 30%,
+    rgba(200, 168, 50, 0.15) 50%,
+    transparent 70%
+  );
+  transition: left 0.5s ease;
+}
+
+.btn:hover::before { left: 100%; }
+
+.btn:hover {
+  border-color: var(--g);
+  background: var(--p);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(26, 16, 8, 0.06);
+}
+
+.btn:active { transform: translateY(0); }
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--pd);
+  background: var(--pd);
+}
+.btn:disabled:hover { transform: none; box-shadow: none; }
+.btn:disabled::before { display: none; }
+
+.btn-primary {
+  background: var(--nv);
+  color: var(--pl);
+  border-color: var(--nv);
+}
+.btn-primary:hover {
+  background: var(--nvl);
+  border-color: var(--g);
+}
+.btn-primary .btn-label { color: var(--gl); }
+
+.btn-danger {
+  border-color: var(--cr);
+  color: var(--cr);
+}
+.btn-danger:hover {
+  background: var(--cr);
+  color: var(--pl);
+  border-color: var(--cr);
+}
+
+.btn-label {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--im);
+  display: block;
+  margin-bottom: 4px;
+}
+
+.btn-body {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* small inline button */
+.btn-inline {
+  display: inline-block;
+  width: auto;
+  padding: 8px 16px;
+  font-size: 13px;
+  margin: 0;
+}
+
+/* button row */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.btn-row .btn { flex: 1; min-width: 140px; margin-bottom: 0; }
+
+/* ------------- LOCKED ITEMS ------------- */
+
+.locked {
+  opacity: 0.5;
+  filter: saturate(0.5);
+  position: relative;
+}
+.locked::after {
+  content: '🔒 LOCKED';
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--im);
+}
+
+/* ------------- TEAM ACCENT BAR ------------- */
+
+.team-bar {
+  height: 3px;
+  border-radius: 2px;
+  margin-bottom: 10px;
+}
+
+/* ------------- UTILITY ------------- */
+
+.text-small {
+  font-size: 12px;
+  color: var(--id);
+}
+
+.text-tiny {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--im);
+}
+
+.text-gold { color: var(--gd); }
+.text-crimson { color: var(--cr); }
+.text-center { text-align: center; }
+.text-italic { font-style: italic; }
+
+.mt-8 { margin-top: 8px; }
+.mt-12 { margin-top: 12px; }
+.mt-16 { margin-top: 16px; }
+.mt-24 { margin-top: 24px; }
+.mb-8 { margin-bottom: 8px; }
+.mb-12 { margin-bottom: 12px; }
+.mb-16 { margin-bottom: 16px; }
+.mb-24 { margin-bottom: 24px; }
+
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--pb), transparent);
+  margin: 20px 0;
+}
+
+/* ------------- PROGRESS BAR ------------- */
+
+.bar {
+  height: 6px;
+  background: var(--pd);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.bar-f {
+  height: 100%;
+  background: linear-gradient(90deg, var(--gd), var(--g));
+  border-radius: 3px;
+  position: relative;
+  overflow: hidden;
+  transition: width 0.6s ease;
+}
+
+.bar-f::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(255, 255, 255, 0.3),
+    transparent
+  );
+  animation: flow 2.5s linear infinite;
+}
+
+@keyframes flow {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+.bar-f-crimson { background: linear-gradient(90deg, #6a1010, var(--cr)); }
+.bar-f-navy { background: linear-gradient(90deg, var(--nvd), var(--nvl)); }
+
+/* resource row */
+.res-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.res-label {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--id);
+  width: 110px;
+  flex-shrink: 0;
+}
+.res-bar { flex: 1; }
+.res-val {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  width: 50px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ------------- FADE-IN ------------- */
+
+.fade-in {
+  animation: fadeIn 0.4s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ------------- MODAL ------------- */
+
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 34, 68, 0.75);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  animation: fadeIn 0.2s ease;
+}
+
+.modal {
+  background: var(--p);
+  border: 2px solid var(--g);
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+.modal h3 {
+  font-family: Georgia, serif;
+  font-size: 20px;
+  margin-bottom: 12px;
+  color: var(--ink);
+}
+
+/* ------------- FOOTNOTE ------------- */
+
+.footnote {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--im);
+  text-align: center;
+  padding: 20px 0;
+  border-top: 1px solid var(--pd);
+  margin-top: 32px;
+}
+
+/* ------------- TEAM TILE (main menu) ------------- */
+
+.team-tile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--pl);
+  border: 1px solid var(--pd);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.team-tile::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(120deg,
+    transparent 30%,
+    rgba(200, 168, 50, 0.12) 50%,
+    transparent 70%
+  );
+  transition: left 0.6s ease;
+}
+
+.team-tile:hover::before { left: 100%; }
+
+.team-tile:hover:not(.locked) {
+  border-color: var(--g);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(26, 16, 8, 0.08);
+}
+
+.team-swatch {
+  width: 8px;
+  align-self: stretch;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.team-info { flex: 1; min-width: 0; }
+
+.team-name {
+  font-size: 16px;
+  font-weight: bold;
+  color: var(--ink);
+}
+
+.team-meta {
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--im);
+  margin-top: 3px;
+}
+
+/* ------------- BADGES ------------- */
+
+.badge {
+  display: inline-block;
+  font-family: 'Segoe UI', sans-serif;
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--pd);
+  color: var(--id);
+  font-weight: 600;
+}
+
+.badge-gold { background: var(--g); color: var(--nvd); }
+.badge-crimson { background: var(--cr); color: var(--pl); }
+.badge-navy { background: var(--nv); color: var(--gl); }
+
+/* live dot */
+.dot-live {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cr);
+  animation: pulse 1.5s infinite;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* ------------- RESPONSIVE ------------- */
+
+@media (max-width: 480px) {
+  .hero-title { font-size: 28px; letter-spacing: 3px; }
+  .title { font-size: 18px; }
+  main { padding: 16px; }
+  .header { padding: 16px 18px 12px; }
+  .hero { padding: 40px 18px 32px; }
+}
