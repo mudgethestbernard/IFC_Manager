@@ -814,6 +814,44 @@
   }
 
   // ============================================
+  //   PLAYER PIT — callable from the UI at any lap
+  // ============================================
+  function playerPit(raceState, playerState) {
+    const player = raceState.runners.find(r => r.isPlayer);
+    if (!player || player.dnf) return { ok: false, feedback: 'No active player runner.' };
+    if (player.justPittedLap === raceState.lap) {
+      return { ok: false, feedback: 'Already pitted this lap.' };
+    }
+
+    const pitTime = playerState.pitBase;
+    const positionsLost = Math.max(1, Math.min(3, Math.round(pitTime / 5)));
+
+    const oldPos = player.position;
+    const newPos = Math.min(7, oldPos + positionsLost);
+
+    raceState.runners.forEach(r => {
+      if (r === player) return;
+      if (r.dnf) return;
+      if (r.position > oldPos && r.position <= newPos) r.position -= 1;
+    });
+    player.position = newPos;
+
+    for (const k of Object.keys(player.layers)) {
+      player.layers[k] = Math.min(100, player.layers[k] + 75);
+    }
+    player.mustPit = false;
+    player.needsPit = false;
+    player.pitsTaken += 1;
+    player.timeOffset += pitTime;
+    player.justPittedLap = raceState.lap;
+
+    emitCommentary(raceState, 'etienne',
+      `"Bayes into the pit — ${pitTime.toFixed(1)}-second stop. Rejoins P${newPos}."`);
+
+    return { ok: true, feedback: `Pit stop: ${pitTime.toFixed(1)}s. Now P${newPos}.` };
+  }
+
+  // ============================================
   //   EXPORT
   // ============================================
   window.IFCRace = {
