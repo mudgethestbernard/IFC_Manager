@@ -14,14 +14,26 @@
   // Single "hot lap" score per rider. Grid set by score.
   function simulateQualifying(state) {
     const track = window.IFC.trackByRound(state.round);
+    if (!track) {
+      console.error('No track for round', state.round);
+      return [];
+    }
     const entries = [];
 
     for (const teamId of Object.keys(TEAMS)) {
-      const team = teamId === state.teamId
-        ? { ...TEAMS[teamId], broom: state.broom }
-        : TEAMS[teamId];
-      const rider = RIDERS[team.riderId];
-      const isPlayer = teamId === state.teamId;
+      const baseTeam = TEAMS[teamId];
+      const isPlayer = (teamId === state.teamId);
+
+      // Use player's current broom state, otherwise the team's canonical broom.
+      const broom = isPlayer
+        ? (state.broom || baseTeam.broom)
+        : baseTeam.broom;
+
+      const rider = RIDERS[baseTeam.riderId];
+      if (!rider) {
+        console.warn('Missing rider for team', teamId);
+        continue;
+      }
 
       const playerPhys = isPlayer ? state.rider.physical : rider.physical;
       const playerMen = isPlayer ? state.rider.mental : rider.mental;
@@ -29,18 +41,18 @@
       let score = 0;
       score += rider.skill.qualifying * 0.45;
       score += rider.skill.pace * 0.20;
-      score += team.broom.speed * 0.15;
-      score += team.broom.handling * 0.10;
+      score += broom.speed * 0.15;
+      score += broom.handling * 0.10;
       score += playerPhys * 0.05;
       score += playerMen * 0.05;
 
       // track-type adjustments
       if (track.type === 'technical') score += rider.skill.tyreMgmt * 0.05;
-      if (track.type === 'high-speed') score += team.broom.speed * 0.03;
+      if (track.type === 'high-speed') score += broom.speed * 0.03;
       if (track.type === 'over-water') score += rider.skill.consistency * 0.03;
 
       // simulator bonus (player only)
-      if (isPlayer && state.flags.simBonusActive) score += 6;
+      if (isPlayer && state.flags && state.flags.simBonusActive) score += 6;
 
       // noise
       score += (Math.random() - 0.5) * 8;
@@ -64,16 +76,14 @@
 
     const runners = grid.map(g => {
       const rider = RIDERS[g.riderId];
-      const team = g.teamId === state.teamId
-        ? { ...TEAMS[g.teamId], broom: state.broom }
-        : TEAMS[g.teamId];
+      const baseTeam = TEAMS[g.teamId];
+      const broom = g.isPlayer ? (state.broom || baseTeam.broom) : baseTeam.broom;
       return {
         riderId: g.riderId,
         teamId: g.teamId,
         isPlayer: g.isPlayer,
         grid: g.grid,
-        position: g.grid, // live position
-        // spell-layer gauges (0-100 each, deplete over laps)
+        position: g.grid,
         layers: {
           structural: 100,
           cushioning: 100,
@@ -90,16 +100,16 @@
         consistency: rider.skill.consistency,
         physical: g.isPlayer ? state.rider.physical : rider.physical,
         mental: g.isPlayer ? state.rider.mental : rider.mental,
-        broomSpeed: team.broom.speed,
-        broomHandling: team.broom.handling,
-        broomReliability: team.broom.reliability,
+        broomSpeed: broom.speed,
+        broomHandling: broom.handling,
+        broomReliability: broom.reliability,
         pitsTaken: 0,
         needsPit: false,
-        mustPit: false,        // protection charm broken etc.
+        mustPit: false,
         dnf: false,
         dnfReason: null,
-        timeOffset: 0,         // seconds gained/lost vs baseline
-        radioIgnored: false,   // set when Cassian goes off-radio
+        timeOffset: 0,
+        radioIgnored: false,
       };
     });
 
