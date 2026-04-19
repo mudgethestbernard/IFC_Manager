@@ -40,13 +40,17 @@
       if (save) {
         const team = TEAMS[save.teamId];
         const standing = G.playerStanding(save);
+        const isEnded = save.phase === 'ended';
+        const phaseLabel = isEnded
+          ? 'Season Complete'
+          : `Round ${save.round} · ${save.phase.replace('-', ' ')}`;
         html += `
           <div class="sh sh-crimson"><span class="dot-live"></span>Resume Session</div>
           <div class="card card-hover" onclick="MENU.resume('${save.teamId}')">
             <div class="team-bar" style="background: linear-gradient(90deg, ${team.colourA}, ${team.colourB});"></div>
             <div class="text-tiny text-gold">${team.name} · ${FLAG[team.country] || ''}</div>
             <div style="font-size:17px; font-weight:bold; margin-top:4px;">
-              Round ${save.round} · ${save.phase.replace('-', ' ')}
+              ${phaseLabel}
             </div>
             <div class="text-small mt-8">
               ${standing.position > 0 ? `P${standing.position} · ${standing.points} pts` : 'Season not started'}

@@ -33,6 +33,7 @@ For GitHub Pages, push to a repo and enable Pages on the `main` branch
 │   ├── events.js       Event cards — scripted + random pool
 │   ├── race.js         Qualifying sim, race engine, commentary
 │   ├── postrace.js     Daily Prophet coverage, podium interviews
+│   ├── endings.js      Season-end branching cutscenes
 │   ├── menu.js         Main menu rendering
 │   └── ui.js           Game screen rendering
 └── README.md
@@ -46,7 +47,9 @@ For GitHub Pages, push to a repo and enable Pages on the `main` branch
 - [x] **Phase 2** — Pre-Race Week: Action Points, broom R&D, rider management, media
 - [x] **Phase 3** — Qualifying and Race Day: lap-by-lap commentary, strategic interventions
 - [x] **Phase 4** — Event cards: scripted canon moments and random pool
-- [ ] **Phase 5** — Endings, polish, unlock celebration
+- [x] **Phase 5** — Endings, season summary, new-season flow
+
+The game is content-complete for the Nimbus-only campaign.
 
 ---
 
@@ -77,20 +80,3 @@ All writes happen through `IFCGame.saveGame()` with `try/catch`
 around quota failures. Incognito / private browsing will not
 persist between sessions — a notice should be shown when we detect
 this (to be added in a later phase).
-
----
-
-## Design Notes
-
-The visual language is inherited from the existing IFC publication
-site. Same palette (parchment, navy, gold), same Georgia serif body,
-same shimmer and sweep animations, same card treatments. The game
-reads as an extension of the publication.
-
-Writing follows the tone of the series bible:
-
-- Mick Herron–style prose: short, sharp, dry.
-- John Flanagan–style dialogue: banter first, exposition never.
-- Harry Potter worldbuilding language only — no Muggle science terms
-  outside Colin Bayes's mouth.
-- Scenes end quietly. No crescendos.

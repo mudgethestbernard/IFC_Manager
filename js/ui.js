@@ -541,6 +541,7 @@
   let _raceMode = 'idle'; // idle | running | paused | intervention | finished
   let _pendingIntervention = null;
   let _lastResolution = null; // cached race result for post-race screen
+  let _prevRunnerPositions = null; // rider id → previous position for swap detection
 
   function renderRaceScreen(state, track) {
     if (!_raceState && _raceMode === 'idle') {
@@ -748,10 +749,12 @@
 
   function beginRace() {
     const state = G.getCurrent();
-    // build grid from stored qualifying
     const grid = window.IFCRace.simulateQualifying(state);
     _raceState = window.IFCRace.initRaceState(state, grid);
     _raceMode = 'running';
+    // Initialise the position snapshot so the first tick doesn't highlight everyone
+    _prevRunnerPositions = {};
+    _raceState.runners.forEach(r => { _prevRunnerPositions[r.riderId] = r.position; });
     scheduleNextTick();
     render();
   }
@@ -833,44 +836,47 @@
       }
     }
 
-    // running order — apply FLIP animation on swaps
+    // running order — swap-detection via stored positions (reliable)
     const orderEl = document.getElementById('race-order');
     if (orderEl) {
-      // Snapshot current row positions keyed by rider id
-      const before = {};
-      orderEl.querySelectorAll('[data-rider-row]').forEach(el => {
-        const rid = el.getAttribute('data-rider-row');
-        before[rid] = el.getBoundingClientRect().top;
-      });
+      // Figure out which runners changed position since the last tick
+      const changed = new Set();
+      if (_prevRunnerPositions) {
+        rs.runners.forEach(r => {
+          const prev = _prevRunnerPositions[r.riderId];
+          if (prev !== undefined && prev !== r.position && !r.dnf) {
+            changed.add(r.riderId);
+          }
+        });
+      }
 
       orderEl.innerHTML = renderRunningOrderRows(rs);
 
-      // Apply FLIP — compute delta, animate from old → new
-      requestAnimationFrame(() => {
-        orderEl.querySelectorAll('[data-rider-row]').forEach(el => {
-          const rid = el.getAttribute('data-rider-row');
-          const newTop = el.getBoundingClientRect().top;
-          const oldTop = before[rid];
-          if (oldTop !== undefined && oldTop !== newTop) {
-            const delta = oldTop - newTop;
-            el.style.transition = 'none';
-            el.style.transform = `translateY(${delta}px)`;
+      // Apply highlight only to riders whose position actually changed
+      if (changed.size > 0) {
+        requestAnimationFrame(() => {
+          orderEl.querySelectorAll('[data-rider-row]').forEach(el => {
+            const rid = el.getAttribute('data-rider-row');
+            if (!changed.has(rid)) return;
             el.style.boxShadow = '0 0 0 2px rgba(200,168,50,0.55)';
-            el.style.background = 'rgba(200,168,50,0.15)';
-            requestAnimationFrame(() => {
-              el.style.transition = 'transform 0.5s cubic-bezier(0.3, 0.9, 0.3, 1.1), box-shadow 0.8s ease, background 0.8s ease';
-              el.style.transform = '';
-              setTimeout(() => {
-                el.style.boxShadow = '';
-                // preserve the player's gold-highlight background
-                if (!el.hasAttribute('data-player-row')) {
-                  el.style.background = '';
-                }
-              }, 700);
-            });
-          }
+            el.style.background = 'rgba(200,168,50,0.20)';
+            el.style.transition = 'box-shadow 0.7s ease, background 0.7s ease';
+            setTimeout(() => {
+              el.style.boxShadow = '';
+              if (!el.hasAttribute('data-player-row')) {
+                el.style.background = '';
+              } else {
+                // restore the player's subtle gold background
+                el.style.background = 'rgba(200,168,50,0.07)';
+              }
+            }, 900);
+          });
         });
-      });
+      }
+
+      // Update snapshot for next tick
+      _prevRunnerPositions = {};
+      rs.runners.forEach(r => { _prevRunnerPositions[r.riderId] = r.position; });
     }
 
     // commentary: append new lines
@@ -965,7 +971,6 @@
     const state = G.getCurrent();
     const resolution = window.IFCRace.finalizeRace(_raceState, state);
 
-    // Cache the race resolution + final order for the post-race view
     _lastResolution = {
       finishOrder: resolution.finishOrder,
       playerPos: resolution.playerPos,
@@ -975,15 +980,22 @@
       playerRunner: _raceState.runners.find(r => r.isPlayer),
     };
 
-    // Move to post-race phase (do NOT advance round yet)
-    state.phase = 'post-race';
+    // Breakdown check — mental at zero at any point cuts the season short
+    if (state.rider.mental <= 0) {
+      state.flags.breakdownFired = true;
+      state.flags.breakdownRound = state.round;
+      state.phase = 'ended';
+    } else {
+      state.phase = 'post-race';
+    }
+
     G.clampState(state);
     G.saveGame(state);
 
-    // Clear race-specific state, but keep the finish order for the report
     _raceState = null;
     _raceMode = 'idle';
     _qualiResult = null;
+    _prevRunnerPositions = null;
 
     const finishLine = resolution.dnf
       ? `DNF — ${resolution.dnfReason}`
@@ -1044,6 +1056,22 @@
     updateRaceLiveSections();
   }
 
+  function newSeasonSameTeam() {
+    const state = G.getCurrent();
+    if (!state) return;
+    const teamId = state.teamId;
+    // Overwrite current save with a fresh season
+    const fresh = G.newGame(teamId);
+    G.setCurrent(fresh);
+    _lastResolution = null;
+    _raceState = null;
+    _raceMode = 'idle';
+    _qualiResult = null;
+    _prevRunnerPositions = null;
+    pushFeedback('New season begins. Grid clear. Engines dormant.');
+    render();
+  }
+
   function skipQualifying() {
     const state = G.getCurrent();
     state.phase = 'race';
@@ -1057,17 +1085,141 @@
 
   function renderEndedStub(state) {
     const standing = G.playerStanding(state);
-    return `
-      <div class="sh">Season Concluded</div>
-      <div class="card">
-        <div class="text-tiny text-gold">Final Standing</div>
-        <div style="font-size:22px; font-weight:bold; margin-top:6px;">
-          P${standing.position} · ${standing.points} pts
+    const endingId = window.IFCEndings.pickEnding(state);
+    const ending = window.IFCEndings.composeEnding(state, endingId);
+
+    // ---- Season stats ----
+    const wins = (state.results || []).filter(r => r.position === 1).length;
+    const podiums = (state.results || []).filter(r => r.position >= 1 && r.position <= 3 && !r.dnf).length;
+    const dnfs = (state.results || []).filter(r => r.dnf).length;
+    const points5 = (state.results || []).filter(r => r.position >= 1 && r.position <= 5 && !r.dnf).length;
+
+    // ---- Results table: every round ----
+    let resultsRows = '';
+    const results = state.results || [];
+    for (let i = 0; i < 12; i++) {
+      const round = i + 1;
+      const track = window.IFC.trackByRound(round);
+      const r = results.find(x => x.round === round);
+      let posCell, ptsCell;
+      if (!r) {
+        posCell = '<span style="color:var(--il);">—</span>';
+        ptsCell = '';
+      } else if (r.dnf) {
+        posCell = '<span class="text-crimson">DNF</span>';
+        ptsCell = '';
+      } else {
+        posCell = `<b>P${r.position}</b>`;
+        ptsCell = r.points > 0 ? `+${r.points}` : '';
+      }
+      resultsRows += `
+        <div style="display:flex; align-items:center; gap:10px; padding:6px 0;
+                    ${i < 11 ? 'border-bottom:1px dashed var(--pd);' : ''}">
+          <div style="width:24px; text-align:right; font-family:'Segoe UI',sans-serif; font-size:11px; color:var(--im);">R${round}</div>
+          <div style="flex:1; font-size:13px;">${track ? track.name : ''}</div>
+          <div style="font-size:13px; width:50px; text-align:right;">${posCell}</div>
+          <div style="font-family:'Segoe UI',sans-serif; font-size:11px; color:var(--gd); width:36px; text-align:right;">${ptsCell}</div>
         </div>
-        <p class="text-small mt-16" style="color:var(--id);">
-          <i>Ending sequences arrive in a later phase.</i>
-        </p>
+      `;
+    }
+
+    // ---- Championship final table ----
+    const sorted = G.sortedStandings(state);
+    let standingsHtml = '';
+    sorted.forEach((s, i) => {
+      const rider = RIDERS[s.riderId];
+      const team = TEAMS[rider.teamId];
+      const isPlayer = rider.teamId === state.teamId;
+      standingsHtml += `
+        <div style="display:flex; align-items:center; gap:10px; padding:7px 0;
+                    ${i < sorted.length - 1 ? 'border-bottom:1px dashed var(--pd);' : ''}
+                    ${isPlayer ? 'font-weight:bold; background:rgba(200,168,50,0.08);' : ''}">
+          <div style="width:24px; text-align:right; font-family:'Segoe UI',sans-serif; font-size:12px; color:var(--im);">${i + 1}</div>
+          <div style="width:3px; height:22px; background: ${team.colourA}; border-radius:2px;"></div>
+          <div style="flex:1; font-size:13px;">${rider.name}</div>
+          <div style="font-family:'Segoe UI',sans-serif; font-size:13px; font-weight:600;">${s.points}</div>
+        </div>
+      `;
+    });
+
+    // ---- Paragraphs ----
+    const paraHtml = ending.paragraphs.map(p =>
+      `<p style="margin:12px 0; font-size:14px; line-height:1.7;">${p}</p>`
+    ).join('');
+
+    // ---- Starting team for the next season ----
+    const unlocks = G.getUnlocks();
+    const hasAnyUnlock = Object.keys(unlocks).filter(k => unlocks[k]).length > 1;
+
+    return `
+      <!-- Hero / ending card -->
+      <div class="card" style="background:var(--nv); color:var(--pl); border:2px solid var(--g); padding:26px 22px;">
+        <div class="text-tiny" style="color:var(--gl); letter-spacing:4px;">IFC 2003 · SEASON END</div>
+        <div style="font-family:Georgia,serif; font-size:26px; font-weight:bold; line-height:1.15; margin-top:10px;
+                    background: linear-gradient(90deg, var(--g), var(--gl), var(--g));
+                    background-size: 200% auto;
+                    -webkit-background-clip: text;
+                    background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                    animation: shine 6s linear infinite;">
+          ${ending.title}
+        </div>
+        <div class="text-small" style="color:var(--il); margin-top:8px; font-style:italic;">${ending.subtitle}</div>
       </div>
+
+      <!-- Narrative -->
+      <div class="card">
+        ${paraHtml}
+      </div>
+
+      <!-- Season stats -->
+      <div class="sh">Season Tally</div>
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div style="text-align:center; flex:1; min-width:80px;">
+            <div style="font-size:22px; font-weight:bold; color:var(--gd);">${wins}</div>
+            <div class="text-tiny">Wins</div>
+          </div>
+          <div style="text-align:center; flex:1; min-width:80px;">
+            <div style="font-size:22px; font-weight:bold;">${podiums}</div>
+            <div class="text-tiny">Podiums</div>
+          </div>
+          <div style="text-align:center; flex:1; min-width:80px;">
+            <div style="font-size:22px; font-weight:bold;">${points5}</div>
+            <div class="text-tiny">Points Finishes</div>
+          </div>
+          <div style="text-align:center; flex:1; min-width:80px;">
+            <div style="font-size:22px; font-weight:bold; color:var(--cr);">${dnfs}</div>
+            <div class="text-tiny">DNFs</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div style="display:flex; justify-content:space-between; gap:12px;">
+          <div>
+            <div class="text-tiny">Final Standing</div>
+            <div style="font-size:18px; font-weight:bold; margin-top:2px;">P${standing.position} · ${standing.points} pts</div>
+          </div>
+          <div style="text-align:right;">
+            <div class="text-tiny">Treasury</div>
+            <div style="font-size:18px; font-weight:bold; margin-top:2px; color:var(--gd);">${state.galleons.toLocaleString()} G</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Round-by-round ledger -->
+      <div class="sh">Round-by-Round</div>
+      <div class="card">${resultsRows}</div>
+
+      <!-- Final championship -->
+      <div class="sh">Final Championship</div>
+      <div class="card">${standingsHtml}</div>
+
+      <!-- Next actions -->
+      <div class="divider"></div>
+      <button class="btn btn-primary" onclick="UI.newSeasonSameTeam()">
+        <span class="btn-label">Next Season</span>
+        <span class="btn-body">Start 2004 with ${TEAMS[state.teamId].name}</span>
+      </button>
     `;
   }
 
@@ -1421,6 +1573,8 @@
     doPlayerPit,
     // events
     chooseEventOption,
+    // endings
+    newSeasonSameTeam,
     // legacy / unused but kept
     skipQualifying, skipRace,
   };
