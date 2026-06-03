@@ -230,34 +230,61 @@
     }
   }
 
+  // How many places a pit stop costs from a given starting position.
+  // Realistic motorsport behaviour: leaders lose 1-2 spots, mid-field
+  // loses 1-2, back of field may barely move.
+  function pitPositionsLost(oldPos, pitTime) {
+    // Base "time penalty" scaled to positions
+    let base;
+    if (pitTime <= 9) base = 1;
+    else if (pitTime <= 12) base = 2;
+    else if (pitTime <= 16) base = 2;
+    else base = 3; // Cleansweep-grade disaster
+
+    // Leaders drop fewer places (cars behind them are further back on track)
+    if (oldPos === 1) return Math.min(base, 2);
+    if (oldPos === 2) return Math.min(base, 2);
+    if (oldPos === 3) return Math.min(base, 2);
+    if (oldPos <= 5) return Math.min(base, 2);
+    return Math.min(base, 1); // at the back, little further to fall
+  }
+
   function maybeNPCPit(r, raceState) {
     const lap = raceState.lap;
     const maxLap = raceState.maxLap;
-
-    // Average of the three core layers — NPCs react to their own state
     const coreAvg = (r.layers.acceleration + r.layers.manoeuvrability + r.layers.protection) / 3;
 
     const shouldPit =
-      (r.pitsTaken === 0 && coreAvg < 25) ||       // layer-based trigger
-      (r.mustPit && r.pitsTaken === 0) ||          // protection charm deadline
-      (r.pitsTaken === 0 && lap >= maxLap - 5) ||  // safety net
-      (r.needsPit && r.pitsTaken === 0 && coreAvg < 35 && Math.random() < 0.5);
+      (r.pitsTaken === 0 && coreAvg < 28) ||
+      (r.mustPit && r.pitsTaken === 0) ||
+      (r.pitsTaken === 0 && lap >= maxLap - 5) ||      // safety-net mandatory pit
+      (r.needsPit && r.pitsTaken === 0 && coreAvg < 40 && Math.random() < 0.5);
 
     if (!shouldPit) return;
 
     const team = TEAMS[r.teamId];
     const baseTime = team.pitBase;
-    const positionsLost = Math.max(1, Math.min(3, Math.round(baseTime / 5)));
+    const lost = pitPositionsLost(r.position, baseTime);
+    const oldPos = r.position;
+    const newPos = Math.min(7, oldPos + lost);
 
-    r.position = Math.min(7, r.position + positionsLost);
+    // Shuffle others up into the vacated slot
+    raceState.runners.forEach(other => {
+      if (other === r) return;
+      if (other.dnf) return;
+      if (other.position > oldPos && other.position <= newPos) other.position -= 1;
+    });
+    r.position = newPos;
+
     r.pitsTaken += 1;
     r.timeOffset += baseTime;
     for (const k of Object.keys(r.layers)) r.layers[k] = Math.min(100, r.layers[k] + 75);
     r.mustPit = false;
     r.needsPit = false;
+    r.overtakeCooldown = 2; // short cooldown after returning
 
     emitCommentary(raceState, 'etienne',
-      `"${lastName(r.riderId)} into the pits — ${baseTime.toFixed(1)} seconds."`);
+      `"${lastName(r.riderId)} into the pits — ${baseTime.toFixed(1)} seconds. Rejoins P${newPos}."`);
   }
 
   function checkMechanical(runner, raceState) {
@@ -333,7 +360,6 @@
     const paceMap = {};
     for (const r of raceState.runners) {
       if (r.dnf) { paceMap[r.riderId] = -9999; continue; }
-      // Layer hit — if accel or maneuvre drops below 30, it degrades sharply
       const accelFactor = r.layers.acceleration < 30
         ? Math.pow(r.layers.acceleration / 30, 2) * 0.9 + 0.1
         : r.layers.acceleration / 100;
@@ -349,15 +375,16 @@
       r.timeOffset = Math.max(0, r.timeOffset - 0.5);
       const pace = r.pacePts * layerHit * stamina * mental + noise - timeCost;
       paceMap[r.riderId] = pace;
+
+      // tick overtake cooldowns down
+      if (r.overtakeCooldown && r.overtakeCooldown > 0) r.overtakeCooldown -= 1;
     }
 
-    // Churn — openings are chaos, settled field sees fewer swaps
     const openingLaps = lap <= 2;
     const churnChance = openingLaps ? 0.65 : 0.38;
 
     const running = raceState.runners.filter(r => !r.dnf).sort((a, b) => a.position - b.position);
 
-    // Consider adjacent pairs for swaps
     for (let i = 0; i < running.length - 1; i++) {
       const front = running[i];
       const back = running[i + 1];
@@ -367,6 +394,11 @@
       const diff = backPace - frontPace;
       if (diff <= 0) continue;
 
+      // Cooldown: the front runner was recently overtaken or recently overtook —
+      // don't let positions ping-pong between the same two runners.
+      if (front.overtakeCooldown && front.overtakeCooldown > 0) continue;
+      if (back.overtakeCooldown && back.overtakeCooldown > 0) continue;
+
       let pSwap = churnChance * (diff / 18) * (0.7 + back.overtaking / 300);
       const track = raceState.track;
       if (track.traits && track.traits.includes('bottleneck')) pSwap *= 0.75;
@@ -375,10 +407,12 @@
 
       if (Math.random() < pSwap) {
         [front.position, back.position] = [back.position, front.position];
+        // Both involved parties get a short cooldown, so they don't swap back next lap
+        front.overtakeCooldown = 3;
+        back.overtakeCooldown = 3;
       }
     }
 
-    // DNFs to end
     const dnfs = raceState.runners.filter(r => r.dnf);
     const active = raceState.runners.filter(r => !r.dnf).sort((a, b) => a.position - b.position);
     active.forEach((r, i) => { r.position = i + 1; });
@@ -824,10 +858,10 @@
     }
 
     const pitTime = playerState.pitBase;
-    const positionsLost = Math.max(1, Math.min(3, Math.round(pitTime / 5)));
+    const lost = pitPositionsLost(player.position, pitTime);
 
     const oldPos = player.position;
-    const newPos = Math.min(7, oldPos + positionsLost);
+    const newPos = Math.min(7, oldPos + lost);
 
     raceState.runners.forEach(r => {
       if (r === player) return;
@@ -844,6 +878,7 @@
     player.pitsTaken += 1;
     player.timeOffset += pitTime;
     player.justPittedLap = raceState.lap;
+    player.overtakeCooldown = 2;
 
     emitCommentary(raceState, 'etienne',
       `"Bayes into the pit — ${pitTime.toFixed(1)}-second stop. Rejoins P${newPos}."`);
