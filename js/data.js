@@ -44,8 +44,8 @@ const TEAMS = {
     colourA: '#8a8a9a',
     colourB: '#3a3a4a',
     riderId: 'wolfram',
-    broom: { speed: 88, handling: 90, reliability: 92 },
-    spellLayerMastery: 95,
+    broom: { speed: 84, handling: 86, reliability: 88 },
+    spellLayerMastery: 90,
     pitBase: 9.5,
     topSpeed: 350,
   },
@@ -131,9 +131,9 @@ const RIDERS = {
     name: 'Wolfram Steiner',
     age: 30,
     teamId: 'silver',
-    skill: { pace: 90, overtaking: 78, qualifying: 95, tyreMgmt: 95, consistency: 94 },
-    physical: 88,
-    mental: 82,
+    skill: { pace: 86, overtaking: 74, qualifying: 90, tyreMgmt: 88, consistency: 88 },
+    physical: 85,
+    mental: 80,
   },
   aurelien: {
     id: 'aurelien',
@@ -301,7 +301,8 @@ const POINTS = { 1: 10, 2: 5, 3: 3, 4: 2, 5: 1, 6: 0, 7: 0 };
 const PRIZE = { 1: 2500, 2: 1500, 3: 800, 4: 400, 5: 200, 6: 0, 7: 0 };
 
 // ---------- WEEKLY OPERATING COST ----------
-const OPERATING_COST = 1500;
+// Removed — prize money and R&D costs are the only economy axis.
+const OPERATING_COST = 0;
 
 // ---------- ACTION POINTS PER WEEK ----------
 const AP_PER_WEEK = 3;
@@ -321,7 +322,7 @@ function getStartingState(teamId) {
     week: 1,
 
     // resources
-    galleons: 15000,
+    galleons: 30000,
     morale: 65,
     reputation: 70,
 
