@@ -472,7 +472,13 @@
 
   function renderQualifyingScreen(state, track) {
     if (!_qualiResult) {
-      _qualiResult = window.IFCRace.simulateQualifying(state);
+      // Run qualifying once, and cache the result on the state so Race Day uses the same grid.
+      if (state.qualifyingGrid && state.qualifyingGrid.round === state.round) {
+        _qualiResult = state.qualifyingGrid.grid;
+      } else {
+        _qualiResult = window.IFCRace.simulateQualifying(state);
+        state.qualifyingGrid = { round: state.round, grid: _qualiResult };
+      }
       const playerEntry = _qualiResult.find(e => e.isPlayer);
       state.gridPosition = playerEntry ? playerEntry.grid : 4;
       G.saveGame(state);
@@ -749,10 +755,17 @@
 
   function beginRace() {
     const state = G.getCurrent();
-    const grid = window.IFCRace.simulateQualifying(state);
+    // Use the cached qualifying grid — must match what the player saw on the quali screen
+    let grid;
+    if (state.qualifyingGrid && state.qualifyingGrid.round === state.round) {
+      grid = state.qualifyingGrid.grid;
+    } else {
+      grid = window.IFCRace.simulateQualifying(state);
+      state.qualifyingGrid = { round: state.round, grid };
+      G.saveGame(state);
+    }
     _raceState = window.IFCRace.initRaceState(state, grid);
     _raceMode = 'running';
-    // Initialise the position snapshot so the first tick doesn't highlight everyone
     _prevRunnerPositions = {};
     _raceState.runners.forEach(r => { _prevRunnerPositions[r.riderId] = r.position; });
     scheduleNextTick();
@@ -1020,6 +1033,8 @@
       state.flags.mediaBuffer = 0;
       state.flags.pressBuffer = 0;
       state.flags.flewWithBrokenProtection = false;
+      // clear qualifying grid from the previous round
+      delete state.qualifyingGrid;
 
       // Tidy up old per-round event flags (keep size bounded)
       for (const k of Object.keys(state.flags)) {
